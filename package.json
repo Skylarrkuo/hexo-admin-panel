@@ -1,0 +1,35 @@
+{
+  "name": "hexo-admin-panel",
+  "version": "1.0.0",
+  "description": "A full-featured admin dashboard for Hexo, built with zero external dependencies and direct Hexo internal API integration",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests yet\""
+  },
+  "keywords": [
+    "hexo",
+    "hexo-plugin",
+    "admin",
+    "dashboard",
+    "cms",
+    "blog",
+    "hexo-admin"
+  ],
+  "author": "Skylarr Kuo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Skylarrkuo/hexo-admin-panel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Skylarrkuo/hexo-admin-panel/issues"
+  },
+  "homepage": "https://github.com/Skylarrkuo/hexo-admin-panel#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "hexo-front-matter": "^4.2.1"
+  }
+}

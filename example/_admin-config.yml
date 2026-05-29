@@ -1,0 +1,16 @@
+# hexo-admin-panel configuration
+# Place this file in your Hexo root directory as _admin-config.yml
+# Or add the admin section to your _config.yml
+
+admin:
+  # Login username
+  username: admin
+
+  # Login password (change this!)
+  password: your-secure-password
+
+  # JWT secret for token signing (change this to a random string)
+  jwt_secret: your-random-secret-string-change-this
+
+  # Token expiry duration (e.g., 24h, 7d, 30m)
+  token_expiry: 24h
