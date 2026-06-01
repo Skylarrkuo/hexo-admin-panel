@@ -1,6 +1,6 @@
 {
   "name": "hexo-admin-panel",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A full-featured admin dashboard for Hexo, built with zero external dependencies and direct Hexo internal API integration",
   "main": "index.js",
   "scripts": {

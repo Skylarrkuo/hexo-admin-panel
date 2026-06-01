@@ -31,7 +31,7 @@ npm install hexo-admin-panel
 ```json
 {
   "dependencies": {
-    "hexo-admin-panel": "^1.0.0"
+    "hexo-admin-panel": "^1.1.1"
   }
 }
 ```
