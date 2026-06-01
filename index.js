@@ -47,6 +47,19 @@ if (adminConfig) {
     // API routes
     app.use(root + 'admin/api', createApiHandler(hexo, adminConfig));
 
+    // Serve vendor JS files (local copies of Vue.js and marked.js)
+    const vendorDir = path.join(__dirname, 'vendor');
+    const vendorMime = { '.js': 'application/javascript; charset=utf-8' };
+    app.use(root + 'admin/vendor/', function (req, res, next) {
+      if (req.method !== 'GET') return next();
+      const fileName = req.url.split('?')[0].replace(/^\//, '');
+      const filePath = path.join(vendorDir, fileName);
+      if (!filePath.startsWith(vendorDir) || !fs.existsSync(filePath)) return next();
+      const ext = path.extname(filePath);
+      res.writeHead(200, { 'Content-Type': vendorMime[ext] || 'application/octet-stream', 'Cache-Control': 'public, max-age=31536000' });
+      fs.createReadStream(filePath).pipe(res);
+    });
+
     // SPA fallback - serve for any /admin request
     app.use(root + 'admin', function (req, res, next) {
       if (req.method !== 'GET') return next();
