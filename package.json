@@ -1,10 +1,16 @@
 {
   "name": "hexo-admin-panel",
-  "version": "1.1.1",
-  "description": "A full-featured admin dashboard for Hexo, built with zero external dependencies and direct Hexo internal API integration",
+  "version": "3.0.0",
+  "description": "A modular Vue-powered admin dashboard with direct Hexo API integration",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"No tests yet\""
+    "dev": "vite --config admin/vite.config.js --configLoader runner",
+    "build": "vite build --config admin/vite.config.js --configLoader runner",
+    "test": "npm run test:node && npm run test:ui",
+    "test:node": "node --test test/**/*.test.js",
+    "test:ui": "vitest run --config admin/vite.config.js --configLoader runner",
+    "check": "npm run test && npm run build",
+    "prepack": "npm run check"
   },
   "keywords": [
     "hexo",
@@ -19,7 +25,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Skylarrkuo/hexo-admin-panel.git"
+    "url": "git+https://github.com/Skylarrkuo/hexo-admin-panel.git"
   },
   "bugs": {
     "url": "https://github.com/Skylarrkuo/hexo-admin-panel/issues"
@@ -31,15 +37,26 @@
   "files": [
     "index.js",
     "lib/",
-    "vendor/",
+    "dist/",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],
   "dependencies": {
     "hexo-front-matter": "^4.2.1",
-    "js-yaml": "^4.1.1"
+    "js-yaml": "^4.3.1"
   },
   "peerDependencies": {
     "hexo": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/test-utils": "^2.4.6",
+    "dompurify": "^3.4.14",
+    "jsdom": "^26.1.0",
+    "marked": "^15.0.7",
+    "vite": "^7.1.3",
+    "vitest": "^3.2.4",
+    "vue": "^3.5.20"
   }
 }

@@ -14,3 +14,27 @@ admin:
 
   # Token expiry duration (e.g., 24h, 7d, 30m)
   token_expiry: 24h
+
+  security:
+    # Failed logins allowed in one window before a temporary lock
+    login_max_attempts: 5
+    login_window_minutes: 15
+    login_lock_minutes: 15
+
+  uploads:
+    # Values are bytes. SVG is intentionally not supported.
+    max_file_size: 10485760
+    max_request_size: 52428800
+    max_files: 10
+    allowed_extensions:
+      - .jpg
+      - .jpeg
+      - .png
+      - .gif
+      - .webp
+      - .bmp
+      - .ico
+      - .pdf
+      - .zip
+      - .mp3
+      - .mp4

@@ -1,9 +1,0 @@
-node_modules/
-example/
-.git/
-.github/
-*.log
-.DS_Store
-Thumbs.db
-.gitignore
-package-lock.json
