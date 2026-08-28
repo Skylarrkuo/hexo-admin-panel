@@ -4,14 +4,16 @@
       <h3 :id="titleId">{{ dialog.title }}</h3>
       <p>{{ dialog.message }}</p>
       <div class="btn-group" style="justify-content:flex-end">
-        <button class="btn btn-outline" @click="$emit('cancel')">取消</button>
-        <button class="btn btn-danger" @click="$emit('confirm')">确认</button>
+        <button class="btn btn-outline" @click="$emit('cancel')">{{ tr('取消','Cancel') }}</button>
+        <button class="btn btn-danger" @click="$emit('confirm')">{{ tr('确认','Confirm') }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
+import { useI18n } from '../i18n';
+const {tr}=useI18n();
 defineProps({ dialog: { type: Object, required: true } });
 defineEmits(['cancel', 'confirm']);
 const titleId = 'confirm-dialog-title';

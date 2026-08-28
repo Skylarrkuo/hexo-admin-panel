@@ -10,10 +10,10 @@ export const api = {
     if (body !== undefined) options.body = JSON.stringify(body);
     const response = await fetch(apiBase + path, options);
     const payload = await response.json();
-    if (response.status === 401) { this.logout(); throw new Error('会话已过期'); }
+    if (response.status === 401) { this.logout(); const error = new Error('Session expired'); error.code = 'UNAUTHORIZED'; throw error; }
     if (!payload.success) {
-      const error = new Error(payload.error || '未知错误');
-      error.code = payload.code;
+      const error = new Error(payload.error || 'Request failed');
+      error.code = payload.code || 'UNKNOWN_ERROR';
       error.status = response.status;
       throw error;
     }
@@ -28,10 +28,10 @@ export const api = {
     if (this.token) options.headers.Authorization = 'Bearer ' + this.token;
     const response = await fetch(apiBase + path, options);
     const payload = await response.json();
-    if (response.status === 401) { this.logout(); throw new Error('会话已过期'); }
+    if (response.status === 401) { this.logout(); const error = new Error('Session expired'); error.code = 'UNAUTHORIZED'; throw error; }
     if (!payload.success) {
-      const error = new Error(payload.error || '上传失败');
-      error.code = payload.code;
+      const error = new Error(payload.error || 'Upload failed');
+      error.code = payload.code || 'UPLOAD_FAILED';
       error.status = response.status;
       throw error;
     }

@@ -2,31 +2,31 @@
   <section>
     <div class="dashboard-hero">
       <div class="card welcome-card">
-        <div><span class="eyebrow">Your publishing desk</span><h2>把今天的想法，整理成一篇值得留下的文章。</h2><p>内容、资源与站点配置都在同一处。写完后生成预览，确认无误再发布。</p></div>
-        <div class="welcome-actions"><button class="btn btn-primary" @click="$emit('create')">＋ 开始写文章</button></div>
+        <div><span class="eyebrow">Your publishing desk</span><h2>{{ tr('把今天的想法，整理成一篇值得留下的文章。','Turn today’s idea into something worth keeping.') }}</h2><p>{{ tr('内容、资源与站点配置都在同一处。写完后生成预览，确认无误再发布。','Write, manage assets, and configure your site in one place. Preview before you publish.') }}</p></div>
+        <div class="welcome-actions"><button class="btn btn-primary" @click="$emit('create')">＋ {{ tr('开始写文章','Write a post') }}</button></div>
       </div>
       <div class="stats-grid">
         <div v-for="item in statItems" :key="item.label" class="stat-card"><div class="num">{{ item.value }}</div><div class="label">{{ item.label }}</div></div>
       </div>
     </div>
     <div class="card">
-      <div class="card-title">站点操作</div>
+      <div class="card-title">{{ tr('站点操作','Site actions') }}</div>
       <div class="command-grid">
-        <button class="command-action" :disabled="commandLoading" @click="$emit('command','generate')"><span><strong>{{ commandLoading==='generate'?'正在生成':'生成站点' }}</strong><small>编译最新静态文件</small></span><b>→</b></button>
-        <button class="command-action" :disabled="commandLoading" @click="$emit('command','deploy')"><span><strong>{{ commandLoading==='deploy'?'正在部署':'部署站点' }}</strong><small>发布到远程环境</small></span><b>→</b></button>
-        <button class="command-action" :disabled="commandLoading" @click="$emit('command','clean')"><span><strong>{{ commandLoading==='clean'?'正在清除':'清除缓存' }}</strong><small>移除生成缓存</small></span><b>→</b></button>
-        <button class="command-action" :disabled="commandLoading" @click="$emit('command','rebuild-restart')"><span><strong>{{ commandLoading==='rebuild-restart'?'正在重建':'重建并重启' }}</strong><small>完整刷新服务</small></span><b>↻</b></button>
+        <button class="command-action" :disabled="commandLoading" @click="$emit('command','generate')"><span><strong>{{ commandLoading==='generate'?tr('正在生成','Generating'):tr('生成站点','Generate site') }}</strong><small>{{ tr('编译最新静态文件','Build the latest static files') }}</small></span><b>→</b></button>
+        <button class="command-action" :disabled="commandLoading" @click="$emit('command','deploy')"><span><strong>{{ commandLoading==='deploy'?tr('正在部署','Deploying'):tr('部署站点','Deploy site') }}</strong><small>{{ tr('发布到远程环境','Publish to the remote target') }}</small></span><b>→</b></button>
+        <button class="command-action" :disabled="commandLoading" @click="$emit('command','clean')"><span><strong>{{ commandLoading==='clean'?tr('正在清除','Cleaning'):tr('清除缓存','Clean cache') }}</strong><small>{{ tr('移除生成缓存','Remove generated cache') }}</small></span><b>→</b></button>
+        <button class="command-action" :disabled="commandLoading" @click="$emit('command','rebuild-restart')"><span><strong>{{ commandLoading==='rebuild-restart'?tr('正在重建','Rebuilding'):tr('重建并重启','Rebuild and restart') }}</strong><small>{{ tr('完整刷新服务','Refresh the full service') }}</small></span><b>↻</b></button>
       </div>
     </div>
     <div class="card">
-      <div class="card-title">最近文章</div>
-      <div v-if="recentPosts.length===0" class="empty">暂无文章</div>
+      <div class="card-title">{{ tr('最近文章','Recent posts') }}</div>
+      <div v-if="recentPosts.length===0" class="empty">{{ tr('暂无文章','No posts yet') }}</div>
       <table v-else>
-        <thead><tr><th>标题</th><th>日期</th><th>状态</th></tr></thead>
+        <thead><tr><th>{{ tr('标题','Title') }}</th><th>{{ tr('日期','Date') }}</th><th>{{ tr('状态','Status') }}</th></tr></thead>
         <tbody><tr v-for="post in recentPosts" :key="post._id">
           <td><a href="#/posts" @click="$emit('edit',post._id)">{{ post.title }}</a></td>
           <td>{{ formatDate(post.date) }}</td>
-          <td><span :class="post.published?'status-published':'status-draft'">{{ post.published?'已发布':'草稿' }}</span></td>
+          <td><span :class="post.published?'status-published':'status-draft'">{{ post.published?tr('已发布','Published'):tr('草稿','Draft') }}</span></td>
         </tr></tbody>
       </table>
     </div>
@@ -35,11 +35,13 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useI18n } from '../i18n';
+const {tr}=useI18n();
 const props = defineProps({ stats: { type: Object, required: true }, recentPosts: { type: Array, required: true }, commandLoading: [String, Boolean] });
 defineEmits(['command', 'edit', 'create']);
 const statItems = computed(() => [
-  ['已发布', props.stats.posts || 0], ['草稿', props.stats.drafts || 0], ['分类', props.stats.categories || 0],
-  ['标签', props.stats.tags || 0], ['总字数', formatNumber(props.stats.totalWords || 0)]
+  [tr('已发布','Published'), props.stats.posts || 0], [tr('草稿','Drafts'), props.stats.drafts || 0], [tr('分类','Categories'), props.stats.categories || 0],
+  [tr('标签','Tags'), props.stats.tags || 0], [tr('总字数','Total words'), formatNumber(props.stats.totalWords || 0)]
 ].map(([label, value]) => ({ label, value })));
 function formatDate(value) { if (!value) return '-'; const date = new Date(value); return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'); }
 function formatNumber(value) { return value >= 10000 ? (value / 10000).toFixed(1) + 'w' : String(value); }

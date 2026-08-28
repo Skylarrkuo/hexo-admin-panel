@@ -51,8 +51,13 @@ test('Redefine adapter describes all scalar and collection fields', () => {
   assert.equal(schema.fields.find(field => field.key === 'comment.enable').type, 'boolean');
   assert.equal(schema.fields.find(field => field.key === 'comment.config.tokens').type, 'array');
   assert.equal(schema.fields.find(field => field.key === 'info.title').label, '网站标题');
+  assert.equal(schema.fields.find(field => field.key === 'info.title').labelI18n.en, 'Site title');
+  assert.equal(schema.sections.find(section => section.key === 'info').labelI18n.en, 'Basic information');
   assert.match(schema.fields.find(field => field.key === 'comment.enable').description, /是否启用评论/);
+  assert.match(schema.fields.find(field => field.key === 'comment.enable').descriptionI18n.en, /enable comment/i);
   assert.equal(schema.fields.find(field => field.key === 'colors.primary').color, true);
+  const withoutComments = redefineAdapter.describe(config, { packageJson: { version: '2.9.0' }, raw: 'info:\n  title: Blog\n' });
+  assert.equal(withoutComments.fields.find(field => field.key === 'info.title').label, '网站标题');
 });
 
 test('passwords are hashed and weak replacements are rejected', () => {

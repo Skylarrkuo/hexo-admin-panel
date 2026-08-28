@@ -8,10 +8,12 @@ import AboutPage from './pages/AboutPage.vue';
 import MarkdownCodeEditor from './components/MarkdownCodeEditor.vue';
 import { renderMarkdown } from './utils/markdown';
 import { fieldsFromSchema, sectionsFromSchema } from './utils/config-schema';
+import { setLocale } from './i18n';
 
 describe('admin application', () => {
   beforeEach(() => {
     localStorage.clear();
+    setLocale('zh-CN');
     location.hash = '';
     document.documentElement.dataset.theme = 'light';
   });
@@ -28,6 +30,15 @@ describe('admin application', () => {
     await wrapper.get('.auth-theme-toggle').trigger('click');
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(localStorage.getItem('hexo_admin_color_mode')).toBe('dark');
+  });
+
+  it('switches and persists the complete interface language', async () => {
+    const wrapper=mount(App);
+    await wrapper.get('.language-toggle').trigger('click');
+    expect(wrapper.get('h2').text()).toBe('Hexo Admin');
+    expect(wrapper.get('label[for="admin-username"]').text()).toBe('Username');
+    expect(localStorage.getItem('hexo_admin_locale')).toBe('en');
+    expect(document.documentElement.lang).toBe('en');
   });
 
   it('sanitizes rendered Markdown', () => {
@@ -60,6 +71,20 @@ describe('admin application', () => {
     expect(wrapper.findAll('.config-field')).toHaveLength(1);
     expect(wrapper.text()).toContain('站点标题');
     expect(wrapper.text()).not.toContain('not described');
+  });
+
+  it('renders built-in theme metadata in the selected language', () => {
+    setLocale('en');
+    const wrapper = mount(ConfigAtlas, { props: {
+      config: { info: { title: 'Blog' } },
+      schema: {
+        fields: [{ key: 'info.title', path: ['info','title'], type: 'string', section: 'info', label: '网站标题', labelI18n: {'zh-CN':'网站标题',en:'Site title'}, descriptionI18n: {'zh-CN':'网站标题',en:'Site title'} }],
+        sections: [{ key: 'info', label: '基本信息', labelI18n: {'zh-CN':'基本信息',en:'Basic information'} }]
+      }
+    } });
+    expect(wrapper.text()).toContain('Site title');
+    expect(wrapper.text()).toContain('Basic information');
+    expect(wrapper.text()).toContain('Configuration map');
   });
 
   it('highlights Markdown without rendering source HTML', () => {
