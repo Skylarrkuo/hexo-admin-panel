@@ -33,9 +33,14 @@ const ERROR_MESSAGES = {
   UNAUTHORIZED: ['登录状态已失效，请重新登录', 'Your session has expired. Please sign in again'],
   PASSWORD_CHANGE_REQUIRED: ['请先设置新的管理员密码', 'Set a new administrator password first'],
   POST_REVISION_CONFLICT: ['文章已在其他位置被修改，请刷新后重试', 'This post changed elsewhere. Refresh and try again'],
+  CONFIG_REVISION_CONFLICT: ['配置已在其他位置被修改，请刷新后重试', 'The configuration changed elsewhere. Refresh and try again'],
+  ABOUT_REVISION_CONFLICT: ['About 页面已在其他位置被修改，请刷新后重试', 'The About page changed elsewhere. Refresh and try again'],
   ESSAYS_REVISION_CONFLICT: ['随笔已在其他位置被修改，请刷新后重试', 'Essays changed elsewhere. Refresh and try again'],
   REVISION_REQUIRED: ['缺少版本信息，请刷新后重试', 'Version information is missing. Refresh and try again'],
   UPLOAD_CONTENT_MISMATCH: ['文件内容与扩展名不一致', 'The file content does not match its extension'],
+  MEDIA_COMPRESSION_UNSUPPORTED: ['此文件类型不支持压缩', 'This file type cannot be compressed'],
+  SCHEDULE_DATE_INVALID: ['定时发布时间无效', 'The scheduled publish time is invalid'],
+  POST_ALREADY_PUBLISHED: ['只能为草稿设置定时发布', 'Only drafts can be scheduled'],
   INTERNAL_ERROR: ['服务器处理失败，请稍后重试', 'The server could not complete the request. Try again later']
 };
 

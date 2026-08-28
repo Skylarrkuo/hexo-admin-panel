@@ -11,7 +11,7 @@
           <button v-for="item in viewOptions" :key="item.value" :class="{active:viewMode===item.value}" @click="setView(item.value)">{{item.label}}</button>
         </div>
       </div>
-      <button class="btn btn-primary" @click="save" :disabled="saving">{{ saving?tr('保存中...','Saving...'):tr('保存文章','Save post') }}</button>
+      <div class="btn-group"><span v-if="autosaveStatus" class="text-sm text-muted">{{ autosaveStatus }}</span><button class="btn btn-primary" @click="save" :disabled="saving">{{ saving?tr('保存中...','Saving...'):tr('保存文章','Save post') }}</button></div>
     </div>
 
     <div v-if="loading" class="loading">{{ tr('加载文章...','Loading post...') }}</div>
@@ -87,7 +87,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, reactive, ref, watch } from 'vue';
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { api, assetUrl } from '../api/client';
 import MarkdownCodeEditor from '../components/MarkdownCodeEditor.vue';
 import { renderMarkdown, sanitizeHtml } from '../utils/markdown';
@@ -107,10 +107,11 @@ const ThemePreview=defineComponent({
   ]);}
 });
 
-const props=defineProps({postId:{type:String,required:true}});const emit=defineEmits(['cancel','saved','notify']);
+const props=defineProps({postId:{type:String,required:true}});const emit=defineEmits(['cancel','saved','notify','dirty-change']);
 const editor=reactive({id:null,title:'',date:'',categoriesStr:'',tagsStr:'',cover:'',content:'',frontMatterFields:[],sourceContent:'',visualDirty:false,sourceDirty:false,revision:''});
-const loading=ref(false),saving=ref(false),mode=ref('visual'),viewMode=ref('split'),preview=ref(''),dragOver=ref(false),uploading=ref(false),coverUploading=ref(false),coverBroken=ref(false),textarea=ref(null),coverInput=ref(null);
-const viewOptions=computed(()=>[{value:'split',label:tr('分栏','Split')},{value:'md',label:tr('仅 Markdown','Markdown')},{value:'preview',label:tr('仅预览','Preview')}]);let previewTimer,previewRequest=0;
+const loading=ref(false),saving=ref(false),mode=ref('visual'),viewMode=ref('split'),preview=ref(''),dragOver=ref(false),uploading=ref(false),coverUploading=ref(false),coverBroken=ref(false),textarea=ref(null),coverInput=ref(null),autosaveStatus=ref('');
+const viewOptions=computed(()=>[{value:'split',label:tr('分栏','Split')},{value:'md',label:tr('仅 Markdown','Markdown')},{value:'preview',label:tr('仅预览','Preview')}]);let previewTimer,previewRequest=0,autosaveTimer,baseline='',applying=false;
+const autosaveKey=computed(()=>'hexo_admin_post_autosave_'+props.postId);
 const coverPreviewUrl=computed(()=>{const value=String(editor.cover||'').trim();return /^(https?:|data:|blob:)/i.test(value)?value:assetUrl(value);});
 const workspaceStyle=computed(()=>{
   const markdown=mode.value==='source'?editor.sourceContent:editor.content;
@@ -129,15 +130,22 @@ const workspaceStyle=computed(()=>{
 function notify(message,type='info'){emit('notify',message,type);}function toLocalDate(value){if(!value)return'';const date=new Date(value);if(Number.isNaN(date.getTime()))return String(value).replace(' ','T').slice(0,16);const pad=value=>String(value).padStart(2,'0');return date.getFullYear()+'-'+pad(date.getMonth()+1)+'-'+pad(date.getDate())+'T'+pad(date.getHours())+':'+pad(date.getMinutes());}
 function displayValue(value){return typeof value==='string'?value:JSON.stringify(value);}function parseValue(value){try{return JSON.parse(value);}catch(_){return value;}}
 function applyData(data){editor.title=data.title||'';editor.date=toLocalDate(data.date);editor.categoriesStr=(Array.isArray(data.categories)?data.categories:[data.categories]).filter(Boolean).join(', ');editor.tagsStr=(Array.isArray(data.tags)?data.tags:[data.tags]).filter(Boolean).join(', ');editor.content=data.content||'';const fields={...(data.frontMatter||{})};editor.cover=typeof fields.cover==='string'?fields.cover:'';delete fields.cover;editor.frontMatterFields=Object.entries(fields).map(([key,value])=>({key,value:displayValue(value)}));if(data.revision!==undefined)editor.revision=data.revision;editor.visualDirty=false;coverBroken.value=false;updatePreview(editor.content);}
+function contentState(){return{title:editor.title,date:editor.date,categoriesStr:editor.categoriesStr,tagsStr:editor.tagsStr,cover:editor.cover,content:editor.content,frontMatterFields:editor.frontMatterFields.map(field=>({...field})),sourceContent:editor.sourceContent};}
+function contentSignature(){return JSON.stringify(contentState());}
+function setDirtyState(){const dirty=Boolean(baseline)&&contentSignature()!==baseline;emit('dirty-change',dirty);return dirty;}
+function clearLocalDraft(){clearTimeout(autosaveTimer);try{localStorage.removeItem(autosaveKey.value);}catch(_){}autosaveStatus.value='';}
+function persistLocalDraft(){if(!setDirtyState()){clearLocalDraft();return;}try{localStorage.setItem(autosaveKey.value,JSON.stringify({version:1,savedAt:new Date().toISOString(),baseRevision:editor.revision,mode:mode.value,viewMode:viewMode.value,state:contentState()}));autosaveStatus.value=tr('已自动保存在本机','Autosaved locally');}catch(_){autosaveStatus.value=tr('本地自动保存失败','Local autosave failed');}}
+function scheduleAutosave(){if(applying||loading.value||!editor.id)return;const dirty=setDirtyState();if(!dirty){clearLocalDraft();return;}autosaveStatus.value=tr('等待自动保存…','Waiting to autosave…');clearTimeout(autosaveTimer);autosaveTimer=setTimeout(persistLocalDraft,800);}
+function restoreLocalDraft(){let saved;try{saved=JSON.parse(localStorage.getItem(autosaveKey.value)||'null');}catch(_){clearLocalDraft();return;}if(!saved||!saved.state)return;const changed=saved.baseRevision&&saved.baseRevision!==editor.revision;const prompt=changed?tr('检测到本地自动保存，但服务器文章已发生变化。仍要恢复本地版本吗？','A local autosave exists, but the server post has changed. Restore the local version anyway?'):tr('检测到未保存的本地草稿，是否恢复？','An unsaved local draft was found. Restore it?');if(!window.confirm(prompt)){clearLocalDraft();return;}applying=true;Object.assign(editor,saved.state);mode.value=saved.mode==='source'?'source':'visual';viewMode.value=['split','md','preview'].includes(saved.viewMode)?saved.viewMode:'split';editor.visualDirty=mode.value==='visual';editor.sourceDirty=mode.value==='source';applying=false;mode.value==='source'?parseSource():updatePreview(editor.content);autosaveStatus.value=tr('已恢复本地草稿','Local draft restored');emit('dirty-change',true);}
 function body(){const frontMatter={};editor.frontMatterFields.forEach(field=>{const key=field.key.trim();if(key&&key!=='cover')frontMatter[key]=parseValue(field.value);});if(editor.cover.trim())frontMatter.cover=editor.cover.trim();let date=editor.date?editor.date.replace('T',' '):undefined;if(date&&date.length===16)date+=':00';return{title:editor.title,content:editor.content,categories:editor.categoriesStr.split(',').map(v=>v.trim()).filter(Boolean),tags:editor.tagsStr.split(',').map(v=>v.trim()).filter(Boolean),date,frontMatter};}
-async function load(){loading.value=true;try{const data=await api.get('/posts/'+props.postId);editor.id=data._id;applyData(data);editor.sourceContent=data.raw||'';editor.sourceDirty=false;}catch(error){notify(errorMessage(error),'error');emit('cancel');}finally{loading.value=false;}}
+async function load(){loading.value=true;applying=true;try{const data=await api.get('/posts/'+props.postId);editor.id=data._id;applyData(data);editor.sourceContent=data.raw||'';editor.sourceDirty=false;baseline=contentSignature();}catch(error){notify(errorMessage(error),'error');emit('cancel');}finally{applying=false;loading.value=false;}restoreLocalDraft();}
 function markVisualDirty(){editor.visualDirty=true;}function setView(next){viewMode.value=next;if(next!=='md')mode.value==='source'?parseSource():updatePreview(editor.content);}
 function handleVisualInput(){markVisualDirty();clearTimeout(previewTimer);previewTimer=setTimeout(()=>updatePreview(editor.content),320);}
 async function updatePreview(content){const current=++previewRequest;preview.value=renderMarkdown(content);try{const data=await api.post('/render',{content:content||''});if(current===previewRequest)preview.value=sanitizeHtml(data.html);}catch(_){/* client-rendered preview remains available */}}
 function sourceBody(){const normalized=(editor.sourceContent||'').replace(/\r\n?/g,'\n'),marker='\n---\n',end=normalized.startsWith('---\n')?normalized.indexOf(marker,4):-1;return end>=0?normalized.slice(end+marker.length):normalized;}
 function parseSource(){updatePreview(sourceBody());}function handleSourceInput(){editor.sourceDirty=true;clearTimeout(previewTimer);previewTimer=setTimeout(parseSource,320);}
 async function switchMode(next){if(next===mode.value)return;try{if(next==='source'){if(editor.visualDirty){const data=await api.post('/posts/source/build',body());editor.sourceContent=data.raw;editor.visualDirty=false;}parseSource();}else if(editor.sourceDirty){const data=await api.post('/posts/source/parse',{raw:editor.sourceContent});applyData(data);editor.sourceDirty=false;}mode.value=next;}catch(error){notify(errorMessage(error),'error');}}
-async function save(){if(mode.value==='visual'&&!editor.title.trim()){notify(tr('标题不能为空','Title is required'),'error');return;}saving.value=true;try{const payload=mode.value==='source'?{raw:editor.sourceContent,revision:editor.revision}:{...body(),revision:editor.revision};const data=await api.put('/posts/'+editor.id,payload);editor.revision=data.revision;notify(tr('文章已更新','Post updated'),'success');emit('saved');}catch(error){notify(errorMessage(error),'error');}finally{saving.value=false;}}
+async function save(){if(mode.value==='visual'&&!editor.title.trim()){notify(tr('标题不能为空','Title is required'),'error');return;}saving.value=true;try{const payload=mode.value==='source'?{raw:editor.sourceContent,revision:editor.revision}:{...body(),revision:editor.revision};const data=await api.put('/posts/'+editor.id,payload);editor.revision=data.revision;baseline=contentSignature();clearLocalDraft();emit('dirty-change',false);notify(tr('文章已更新','Post updated'),'success');emit('saved');}catch(error){notify(errorMessage(error),'error');}finally{saving.value=false;}}
 function addField(){editor.frontMatterFields.push({key:'',value:''});markVisualDirty();}function removeField(index){editor.frontMatterFields.splice(index,1);markVisualDirty();}
 function editorElement(){return textarea.value?.element||null;}function insertFormat(before,after){const element=editorElement();if(!element)return;const start=element.selectionStart,end=element.selectionEnd,text=editor.content||'',selected=text.substring(start,end)||tr('文本','text');editor.content=text.substring(0,start)+before+selected+after+text.substring(end);handleVisualInput();nextTick(()=>{element.focus();element.setSelectionRange(start+before.length,start+before.length+selected.length);});}
 function insertCode(){insertFormat('`','`');}function insertCodeBlock(){insertFormat('\n```\n','\n```\n');}function insertAtCursor(value){const element=editorElement();if(!element)return;const start=element.selectionStart;editor.content=(editor.content||'').slice(0,start)+value+(editor.content||'').slice(start);handleVisualInput();nextTick(()=>{element.focus();element.setSelectionRange(start+value.length,start+value.length);});}
@@ -145,5 +153,9 @@ async function upload(file){if(!file||!file.type.startsWith('image/'))return;upl
 async function uploadCover(event){const file=event.target.files?.[0];if(!file)return;coverUploading.value=true;try{const form=new FormData();form.append('file',file);const data=await api.upload('/media/upload',form);editor.cover=data.path||'';coverBroken.value=false;markVisualDirty();notify(tr('首图已上传，保存文章后生效','Cover uploaded. Save the post to apply it'),'success');}catch(error){notify(tr('首图上传失败：{message}','Cover upload failed: {message}',{message:errorMessage(error)}),'error');}finally{coverUploading.value=false;event.target.value='';}}
 function clearCover(){editor.cover='';coverBroken.value=false;markVisualDirty();}function handleDrop(event){dragOver.value=false;for(const file of event.dataTransfer?.files||[])if(file.type.startsWith('image/'))upload(file);}function handlePaste(event){for(const item of event.clipboardData?.items||[])if(item.type.startsWith('image/')){event.preventDefault();upload(item.getAsFile());break;}}
 function insertImage(){const input=document.createElement('input');input.type='file';input.accept='image/*';input.multiple=true;input.onchange=()=>{for(const file of input.files||[])upload(file);};input.click();}
+function beforeUnload(event){if(!setDirtyState())return;event.preventDefault();event.returnValue='';}
 watch(()=>props.postId,load,{immediate:true});
+watch(()=>contentState(),scheduleAutosave,{deep:true});
+onMounted(()=>window.addEventListener('beforeunload',beforeUnload));
+onBeforeUnmount(()=>{window.removeEventListener('beforeunload',beforeUnload);clearTimeout(previewTimer);clearTimeout(autosaveTimer);});
 </script>

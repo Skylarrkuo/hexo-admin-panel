@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import App from './App.vue';
 import ConfigAtlas from './components/ConfigAtlas.vue';
@@ -6,6 +6,8 @@ import EssaysPage from './pages/EssaysPage.vue';
 import PostEditorPage from './pages/PostEditorPage.vue';
 import AboutPage from './pages/AboutPage.vue';
 import MarkdownCodeEditor from './components/MarkdownCodeEditor.vue';
+import PostsPage from './pages/PostsPage.vue';
+import MediaPage from './pages/MediaPage.vue';
 import { renderMarkdown } from './utils/markdown';
 import { fieldsFromSchema, sectionsFromSchema } from './utils/config-schema';
 import { setLocale } from './i18n';
@@ -16,6 +18,11 @@ describe('admin application', () => {
     setLocale('zh-CN');
     location.hash = '';
     document.documentElement.dataset.theme = 'light';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('renders the existing login experience as a Vue component', () => {
@@ -97,7 +104,7 @@ describe('admin application', () => {
 
   it('supports split, Markdown-only and theme-preview views with a dedicated cover field', async () => {
     const originalFetch=global.fetch;
-    global.fetch=async (_url,options)=>{
+    global.fetch=async (_url,_options)=>{
       const isRender=String(_url).endsWith('/render');
       return {status:200,json:async()=>({success:true,data:isRender?{html:'<h2>Hexo preview</h2><p>Rendered body</p>'}:{_id:'demo',title:'示例文章',date:'2026-08-26 12:00:00',categories:['技术'],tags:['Hexo'],content:'# 正文',frontMatter:{cover:'/images/cover.webp',toc:true},raw:'---\ntitle: 示例文章\ncover: /images/cover.webp\n---\n# 正文',revision:'rev-1'}})};
     };
@@ -119,6 +126,51 @@ describe('admin application', () => {
     expect(wrapper.find('.markdown-code-editor').exists()).toBe(false);
     expect(wrapper.get('.theme-preview-shell').text()).toContain('示例文章');
     global.fetch=originalFetch;
+  });
+
+  it('autosaves unsaved post edits locally and protects browser navigation', async () => {
+    vi.useFakeTimers();
+    const originalFetch=global.fetch;
+    global.fetch=vi.fn(async url=>({status:200,json:async()=>({success:true,data:String(url).endsWith('/render')?{html:'<p>Preview</p>'}:{_id:'autosave-post',title:'Autosave',date:'2026-08-26 12:00:00',categories:[],tags:[],content:'Initial',frontMatter:{},raw:'---\ntitle: Autosave\n---\nInitial',revision:'a'.repeat(64)}})}));
+    const wrapper=mount(PostEditorPage,{props:{postId:'autosave-post'}});
+    await flushPromises();
+    const markdownEditor=wrapper.findComponent(MarkdownCodeEditor);
+    markdownEditor.vm.$emit('update:modelValue','Changed locally');
+    markdownEditor.vm.$emit('input');
+    await wrapper.vm.$nextTick();
+    await vi.advanceTimersByTimeAsync(850);
+    const saved=JSON.parse(localStorage.getItem('hexo_admin_post_autosave_autosave-post'));
+    expect(saved.state.content).toBe('Changed locally');
+    expect(wrapper.emitted('dirty-change').at(-1)).toEqual([true]);
+    const event=new Event('beforeunload',{cancelable:true});
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    wrapper.unmount();
+    global.fetch=originalFetch;
+  });
+
+  it('selects posts for bulk operations and configures scheduled publishing', async () => {
+    const posts=[{_id:'draft-1',title:'Draft one',date:'2026-08-28T08:00:00Z',categories:[],tags:[],wordCount:10,published:false,revision:'a'.repeat(64)}];
+    const wrapper=mount(PostsPage,{props:{posts,loading:false,search:'',status:'all',page:1,total:1,totalPages:1,pageRange:[1]}});
+    await wrapper.get('tbody input[type="checkbox"]').setValue(true);
+    expect(wrapper.text()).toContain('已选择 1 篇');
+    await wrapper.findAll('.bulk-action-bar button')[0].trigger('click');
+    expect(wrapper.emitted('bulk')[0]).toEqual(['publish',posts]);
+    const scheduleButton=wrapper.findAll('button').find(button=>button.text()==='定时');
+    await scheduleButton.trigger('click');
+    expect(wrapper.find('input[type="datetime-local"]').exists()).toBe(true);
+  });
+
+  it('shows media usage analysis and emits compression actions', async () => {
+    const file={name:'cover.png',path:'/images/cover.png',size:2048,used:true,referenceCount:2,references:[{source:'_posts/demo.md',count:2}]};
+    const wrapper=mount(MediaPage,{props:{files:[file],loading:false,search:'',usage:'all',compressing:'',page:1,totalPages:1}});
+    expect(wrapper.text()).toContain('2 处引用');
+    const unusedButton=wrapper.findAll('.filter-tabs button').find(button=>button.text()==='未使用');
+    await unusedButton.trigger('click');
+    expect(wrapper.emitted('update:usage')[0]).toEqual(['unused']);
+    const compressButton=wrapper.findAll('button').find(button=>button.text()==='压缩');
+    await compressButton.trigger('click');
+    expect(wrapper.emitted('compress')[0]).toEqual([file]);
   });
 
   it('edits the About page with Markdown, source and preview modes', async () => {

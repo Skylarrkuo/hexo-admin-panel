@@ -14,6 +14,11 @@
 - 中文与 English 界面切换，语言选择保存在浏览器中
 - 亮色与暗色界面，适配桌面和移动端
 - 登录限流、首次登录改密、上传类型检查等基础安全保护
+- 新文章默认保存到 `source/_drafts`，发布和撤回会安全移动 Markdown 文件
+- 编辑器支持离开保护、本地自动保存和意外关闭后的草稿恢复
+- 服务端全文检索标题、正文、分类、标签和 Front Matter，支持批量发布、撤回和回收
+- 媒体库显示引用来源，可筛选未使用资源并压缩 JPEG、PNG 与 WebP
+- 草稿支持持久化定时发布，Hexo 服务重启后任务仍会恢复
 
 ## 快速开始
 
@@ -122,9 +127,15 @@ Redefine 配置表单的字段名称和说明以中英双语元数据随插件�
 | 管理后台状态 | `.hexo-admin/state.yml` |
 | 回收站 | `.hexo-admin/trash/` |
 | 配置与随笔备份 | `.hexo-admin/backups/` |
+| 媒体压缩原图备份 | `.hexo-admin/backups/media/` |
+| 定时发布任务 | `.hexo-admin/scheduled-posts.json` |
 | 服务重启日志 | `.hexo-admin/restart.log` |
 
 随笔修改前会自动保存 YAML 快照，默认保留最近 20 份。旧随笔首次通过后台修改时会获得稳定的 `id` 字段，Redefine 会忽略该字段。
+
+媒体引用分析会扫描 `source/` 下的 Markdown、YAML、JSON、HTML 和 CSS 内容，并识别其中的 `/images/文件名`。压缩仅在新文件确实更小时替换原文件，每个资源默认保留最近 5 份原图备份。
+
+定时发布依赖 Hexo 服务持续运行；设备休眠或服务短暂停止时，恢复后的下一轮检查会处理已经到期的任务。失败任务会保留错误状态，可在文章列表中取消或重新设置时间。
 
 ## 本地开发
 
@@ -166,9 +177,11 @@ Vite 默认监听 `http://localhost:5173`，并将 `/admin/api` 代理到 `http:
 | `npm run test:node` | 运行后端测试 |
 | `npm run test:ui` | 运行前端组件测试 |
 | `npm test` | 运行全部测试 |
-| `npm run check` | 运行测试并验证生产构建 |
+| `npm run lint` | 检查 Node、Vue 和测试源码 |
+| `npm run coverage` | 生成后端与前端覆盖率报告 |
+| `npm run check` | 运行 lint、全部测试并验证生产构建 |
 
-“重新构建并重启”功能面向直接运行 `hexo server` 的本地环境。它会执行 `hexo clean` 和 `hexo generate`，随后由辅助进程在原端口重启服务。
+“重新构建并重启”功能面向直接运行 `hexo server` 的本地环境。它会执行 `hexo clean` 和 `hexo generate`，随后停止 watcher、刷新 Hexo 状态，并由辅助进程在原端口重启服务。管理端通过实例 ID 确认响应来自新进程，不会把仍在线的旧实例误判为重启成功；交接过程和新进程输出记录在 `.hexo-admin/restart.log`。
 
 ## 项目结构
 
@@ -203,8 +216,10 @@ admin/src/
 
 客户端应根据 `code` 处理错误，不要依赖 `error` 文案。
 
+文章、About、随笔、站点配置和主题配置的修改都带有 revision。文件被其他窗口或外部程序修改后，旧页面的保存请求会返回 `409`，不会静默覆盖新内容。
+
 ## 版本与许可
 
-当前版本为 `3.0.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本为 `3.1.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 本项目基于 [MIT License](LICENSE) 发布。

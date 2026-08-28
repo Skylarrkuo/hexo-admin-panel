@@ -28,6 +28,14 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.js']
+    include: ['src/**/*.test.js'],
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: path.resolve(configDir, '../coverage/ui'),
+      reporter: ['text', 'html', 'json-summary'],
+      include: ['src/**/*.{js,vue}'],
+      exclude: ['src/main.js'],
+      thresholds: { lines: 75, functions: 25, statements: 75, branches: 60 }
+    }
   }
 });

@@ -4,11 +4,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const net = require('node:net');
 const { Readable } = require('node:stream');
 const test = require('node:test');
 const frontMatter = require('hexo-front-matter');
 const yaml = require('js-yaml');
+const sharp = require('sharp');
 const createApiHandler = require('../lib/api');
+const { gracefulExit } = require('../lib/modules/commands/restart');
+const { portAvailable, waitForServer } = require('../lib/modules/commands/restart-helper');
 
 function relation(values) {
   return { toArray: () => values.map(name => ({ name })) };
@@ -18,8 +22,10 @@ function createFixture(runtime) {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hexo-admin-panel-'));
   const sourceDir = path.join(baseDir, 'source');
   const postsDir = path.join(sourceDir, '_posts');
+  const draftsDir = path.join(sourceDir, '_drafts');
   const themeDir = path.join(baseDir, 'themes', 'redefine');
   fs.mkdirSync(postsDir, { recursive: true });
+  fs.mkdirSync(draftsDir, { recursive: true });
   fs.mkdirSync(themeDir, { recursive: true });
   const configPath = path.join(baseDir, '_config.yml');
   fs.writeFileSync(configPath, 'title: Test site\ntheme: redefine\n', 'utf8');
@@ -82,13 +88,14 @@ function createFixture(runtime) {
       throw new Error('Unknown model: ' + name);
     },
     render: { render: async ({ text }) => '<p>' + text + '</p>' },
+    log: { warn() {}, error() {} },
     call: async name => { calls.push(name); }
   };
 
   const config = { username: 'admin', password: 'secret', jwt_secret: 'test-secret', token_expiry: '2h' };
   const handler = createApiHandler(hexo, config, runtime);
   const cleanup = () => fs.rmSync(baseDir, { recursive: true, force: true });
-  return { baseDir, calls, cleanup, config, configPath, handler, hexo, postsDir, processSource, sourceDir };
+  return { baseDir, calls, cleanup, config, configPath, draftsDir, handler, hexo, postsDir, processSource, sourceDir };
 }
 
 function request(handler, method, url, options = {}) {
@@ -115,7 +122,7 @@ function request(handler, method, url, options = {}) {
         clearTimeout(timer);
         const text = Buffer.concat(chunks).toString('utf8');
         let json;
-        try { json = text ? JSON.parse(text) : undefined; } catch (error) { json = undefined; }
+        try { json = text ? JSON.parse(text) : undefined; } catch (_) { json = undefined; }
         resolve({ statusCode: this.statusCode, headers: this.headers, text, json });
       }
     };
@@ -167,6 +174,7 @@ test('authentication rejects malformed input without terminating later requests'
   const token = await login(fixture.handler);
   const verify = await request(fixture.handler, 'GET', '/auth/verify', { headers: authHeaders(token) });
   assert.equal(verify.statusCode, 200);
+  assert.match(verify.json.data.instanceId, /^[0-9a-f-]{36}$/);
 
   const unauthorized = await request(fixture.handler, 'GET', '/posts');
   assert.equal(unauthorized.statusCode, 401);
@@ -245,12 +253,18 @@ test('post API covers create, list, edit, raw source, publish and delete', async
     body: JSON.stringify({ title: 'API Test', categories: ['one'], tags: ['two'], content: 'initial' })
   });
   assert.equal(created.statusCode, 200);
-  assert.match(fs.readFileSync(path.join(fixture.postsDir, 'api-test.md'), 'utf8'), /^---\n/);
+  const draftPath = path.join(fixture.draftsDir, 'api-test.md');
+  assert.match(fs.readFileSync(draftPath, 'utf8'), /^---\n/);
+  assert.equal(fs.existsSync(path.join(fixture.postsDir, 'api-test.md')), false);
 
   const list = await request(fixture.handler, 'GET', '/posts?per_page=10', { headers });
   assert.equal(list.json.data.total, 1);
-  const id = list.json.data.posts[0]._id;
+  let id = list.json.data.posts[0]._id;
+  assert.equal(list.json.data.posts[0].draft, true);
   let revision = list.json.data.posts[0].revision;
+  const draftStats = await request(fixture.handler, 'GET', '/stats', { headers });
+  assert.equal(draftStats.json.data.drafts, 1);
+  assert.equal(draftStats.json.data.posts, 0);
 
   const updated = await request(fixture.handler, 'PUT', '/posts/' + id, {
     headers,
@@ -277,8 +291,28 @@ test('post API covers create, list, edit, raw source, publish and delete', async
     headers, body: JSON.stringify({ published: true, revision })
   });
   assert.equal(published.statusCode, 200);
+  id = published.json.data._id;
   revision = published.json.data.revision;
   assert.match(fs.readFileSync(path.join(fixture.postsDir, 'api-test.md'), 'utf8'), /^---\n/);
+  assert.equal(fs.existsSync(draftPath), false);
+  const publishedStats = await request(fixture.handler, 'GET', '/stats', { headers });
+  assert.equal(publishedStats.json.data.posts, 1);
+  assert.equal(publishedStats.json.data.drafts, 0);
+
+  const unpublished = await request(fixture.handler, 'PUT', '/posts/' + id + '/publish', {
+    headers, body: JSON.stringify({ published: false, revision })
+  });
+  assert.equal(unpublished.statusCode, 200);
+  assert.equal(fs.existsSync(draftPath), true);
+  assert.equal(fs.existsSync(path.join(fixture.postsDir, 'api-test.md')), false);
+  id = unpublished.json.data._id;
+  revision = unpublished.json.data.revision;
+
+  const republished = await request(fixture.handler, 'PUT', '/posts/' + id + '/publish', {
+    headers, body: JSON.stringify({ published: true, revision })
+  });
+  id = republished.json.data._id;
+  revision = republished.json.data.revision;
 
   const removed = await request(fixture.handler, 'DELETE', '/posts/' + id, { headers: { ...headers, 'if-match': revision } });
   assert.equal(removed.statusCode, 200);
@@ -298,7 +332,7 @@ test('post update rejects stale revisions without changing the file', async t =>
   await request(fixture.handler, 'POST', '/posts', { headers, body: JSON.stringify({ title: 'Concurrent', content: 'first' }) });
   const listed = await request(fixture.handler, 'GET', '/posts', { headers });
   const post = listed.json.data.posts[0];
-  const filePath = path.join(fixture.postsDir, 'concurrent.md');
+  const filePath = path.join(fixture.draftsDir, 'concurrent.md');
   fs.appendFileSync(filePath, '\nexternal change');
   const before = fs.readFileSync(filePath, 'utf8');
   const stale = await request(fixture.handler, 'PUT', '/posts/' + post._id, {
@@ -331,6 +365,13 @@ test('media API uploads, lists and deletes a file safely', async t => {
 
   const listed = await request(fixture.handler, 'GET', '/media', { headers: authHeaders(token) });
   assert.equal(listed.json.data.total, 1);
+
+  const imagesDir = path.join(fixture.sourceDir, 'images');
+  for (let index = 0; index < 30; index += 1) fs.writeFileSync(path.join(imagesDir, 'asset-' + index + '.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+  const searched = await request(fixture.handler, 'GET', '/media?page=1&per_page=5&search=asset-29', { headers: authHeaders(token) });
+  assert.equal(searched.json.data.total, 1);
+  assert.equal(searched.json.data.files[0].name, 'asset-29.png');
+  assert.equal(searched.json.data.total_pages, 1);
 
   const renamed = await request(fixture.handler, 'PUT', '/media/test_image.png/rename', { headers: authHeaders(token), body: JSON.stringify({ name: 'renamed-cover.png' }) });
   assert.equal(renamed.statusCode, 200);
@@ -440,6 +481,32 @@ test('rebuild and restart command completes builds before scheduling a safe hand
   assert.equal(restarts.length, 1);
   assert.equal(restarts[0].port, 4000);
   assert.equal(response.json.data.scheduled, true);
+  assert.match(response.json.data.previousInstanceId, /^[0-9a-f-]{36}$/);
+});
+
+test('restart cleanup stops the watcher and lets Hexo flush before exiting', async () => {
+  const calls = [];
+  const context = { hexo: {
+    async unwatch() { calls.push('unwatch'); },
+    async exit() { calls.push('hexo-exit'); },
+    log: { error() {} }
+  } };
+  await gracefulExit(context, { exit(code) { calls.push('process-exit:' + code); } });
+  assert.deepEqual(calls, ['unwatch', 'hexo-exit', 'process-exit:0']);
+});
+
+test('restart helper recognizes the replacement server only after its port is listening', async t => {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => { if (server.listening) server.close(); });
+  const port = server.address().port;
+  assert.equal(await portAvailable(port, '127.0.0.1'), false);
+  await waitForServer({ port, ip: '127.0.0.1' }, { kill() {} }, { error: null, exited: false, code: null, signal: null });
+  await new Promise(resolve => server.close(resolve));
+  assert.equal(await portAvailable(port, '127.0.0.1'), true);
 });
 
 test('config API synchronizes structured data and YAML source', async t => {
@@ -447,6 +514,8 @@ test('config API synchronizes structured data and YAML source', async t => {
   t.after(fixture.cleanup);
   const token = await login(fixture.handler);
   const headers = authHeaders(token);
+  const initialSite = await request(fixture.handler, 'GET', '/config?type=site', { headers });
+  let siteRevision = initialSite.json.data.revision;
 
   const built = await request(fixture.handler, 'POST', '/config/source/build', {
     headers, body: JSON.stringify({ data: {
@@ -466,10 +535,11 @@ test('config API synchronizes structured data and YAML source', async t => {
   });
 
   const saved = await request(fixture.handler, 'PUT', '/config', {
-    headers, body: JSON.stringify({ type: 'site', data: { subtitle: 'Merged' } })
+    headers, body: JSON.stringify({ type: 'site', data: { subtitle: 'Merged' }, revision: siteRevision })
   });
   assert.equal(saved.statusCode, 200);
   assert.ok(saved.json.data.backupId);
+  siteRevision = saved.json.data.revision;
 
   const backups = await request(fixture.handler, 'GET', '/config/backups?type=site', { headers });
   assert.equal(backups.json.data.total, 1);
@@ -488,7 +558,7 @@ test('config API synchronizes structured data and YAML source', async t => {
 
   const themeSaved = await request(fixture.handler, 'PUT', '/config', {
     headers,
-    body: JSON.stringify({ type: 'theme', data: { info: { title: 'Customized theme' } } })
+    body: JSON.stringify({ type: 'theme', data: { info: { title: 'Customized theme' } }, revision: themeLoaded.json.data.revision })
   });
   assert.equal(themeSaved.statusCode, 200);
   assert.equal(fs.readFileSync(themeDefaultPath, 'utf8'), themeDefaultBefore);
@@ -498,7 +568,7 @@ test('config API synchronizes structured data and YAML source', async t => {
   const themeReloaded = await request(fixture.handler, 'GET', '/config?type=theme', { headers });
   assert.equal(themeReloaded.json.data.source, 'site-override');
 
-  const restored = await request(fixture.handler, 'POST', '/config/backups/' + saved.json.data.backupId + '/restore', { headers });
+  const restored = await request(fixture.handler, 'POST', '/config/backups/' + saved.json.data.backupId + '/restore', { headers, body: JSON.stringify({ revision: siteRevision }) });
   assert.equal(restored.statusCode, 200);
   const siteAfterRestore = await request(fixture.handler, 'GET', '/config?type=site', { headers });
   assert.equal(siteAfterRestore.json.data.parsed.subtitle, undefined);
@@ -521,7 +591,7 @@ test('npm theme config is read from the package but saved as a site override', a
 
   const saved = await request(fixture.handler, 'PUT', '/config', {
     headers,
-    body: JSON.stringify({ type: 'theme', raw: 'info:\n  title: Site override\n' })
+    body: JSON.stringify({ type: 'theme', raw: 'info:\n  title: Site override\n', revision: loaded.json.data.revision })
   });
   assert.equal(saved.statusCode, 200);
   assert.equal(fs.readFileSync(packageConfigPath, 'utf8'), 'info:\n  title: Package default\n');
@@ -529,6 +599,114 @@ test('npm theme config is read from the package but saved as a site override', a
     yaml.load(fs.readFileSync(path.join(fixture.baseDir, '_config.redefine.yml'), 'utf8')).info.title,
     'Site override'
   );
+});
+
+test('config API rejects stale revisions without overwriting external edits', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  const loaded = await request(fixture.handler, 'GET', '/config?type=site', { headers });
+  fs.appendFileSync(fixture.configPath, 'external: true\n', 'utf8');
+  const before = fs.readFileSync(fixture.configPath, 'utf8');
+  const stale = await request(fixture.handler, 'PUT', '/config', {
+    headers,
+    body: JSON.stringify({ type: 'site', data: { title: 'Unsafe overwrite' }, revision: loaded.json.data.revision })
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.json.code, 'CONFIG_REVISION_CONFLICT');
+  assert.equal(fs.readFileSync(fixture.configPath, 'utf8'), before);
+});
+
+test('full-text search covers Markdown and Front Matter and bulk operations preflight revisions', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  await request(fixture.handler, 'POST', '/posts', { headers, body: JSON.stringify({ title: 'Search One', content: 'The hidden telescope keyword', tags: ['science'], frontMatter: { description: 'deep space' } }) });
+  await request(fixture.handler, 'POST', '/posts', { headers, body: JSON.stringify({ title: 'Search Two', content: 'ordinary content', categories: ['notes'] }) });
+
+  const contentSearch = await request(fixture.handler, 'GET', '/posts?search=telescope%20science', { headers });
+  assert.equal(contentSearch.json.data.total, 1);
+  assert.equal(contentSearch.json.data.posts[0].title, 'Search One');
+  const frontMatterSearch = await request(fixture.handler, 'GET', '/posts?search=deep%20space', { headers });
+  assert.equal(frontMatterSearch.json.data.total, 1);
+
+  const listed = await request(fixture.handler, 'GET', '/posts?per_page=10', { headers });
+  const staleTarget = listed.json.data.posts.find(post => post.title === 'Search Two');
+  fs.appendFileSync(path.join(fixture.draftsDir, 'search-two.md'), '\nexternal edit', 'utf8');
+  const staleBulk = await request(fixture.handler, 'POST', '/posts/bulk', {
+    headers,
+    body: JSON.stringify({ action: 'delete', items: listed.json.data.posts.map(post => ({ id: post._id, revision: post.revision })) })
+  });
+  assert.equal(staleBulk.statusCode, 409);
+  assert.equal(fs.existsSync(path.join(fixture.draftsDir, 'search-one.md')), true);
+  assert.equal(fs.existsSync(path.join(fixture.draftsDir, 'search-two.md')), true);
+
+  const refreshed = await request(fixture.handler, 'GET', '/posts?per_page=10', { headers });
+  assert.notEqual(refreshed.json.data.posts.find(post => post._id === staleTarget._id).revision, staleTarget.revision);
+  const published = await request(fixture.handler, 'POST', '/posts/bulk', {
+    headers,
+    body: JSON.stringify({ action: 'publish', items: refreshed.json.data.posts.map(post => ({ id: post._id, revision: post.revision })) })
+  });
+  assert.equal(published.statusCode, 200);
+  assert.equal(published.json.data.processed, 2);
+  assert.equal(fs.existsSync(path.join(fixture.postsDir, 'search-one.md')), true);
+  assert.equal(fs.existsSync(path.join(fixture.postsDir, 'search-two.md')), true);
+});
+
+test('media analysis reports references and compression keeps a recoverable backup', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  const imagesDir = path.join(fixture.sourceDir, 'images');
+  const oversized = await sharp({ create: { width: 320, height: 240, channels: 3, background: '#557267' } }).png({ compressionLevel: 0 }).toBuffer();
+  fs.writeFileSync(path.join(imagesDir, 'used.png'), oversized);
+  fs.writeFileSync(path.join(imagesDir, 'unused.png'), oversized);
+  fs.writeFileSync(path.join(fixture.postsDir, 'media-ref.md'), '---\ntitle: Media ref\n---\n![cover](/images/used.png)\n', 'utf8');
+  await fixture.processSource();
+
+  const analysis = await request(fixture.handler, 'GET', '/media/analysis', { headers });
+  assert.equal(analysis.json.data.used, 1);
+  assert.equal(analysis.json.data.unused, 1);
+  assert.equal(analysis.json.data.items.find(item => item.name === 'used.png').references[0].source, '_posts/media-ref.md');
+  const unused = await request(fixture.handler, 'GET', '/media?usage=unused', { headers });
+  assert.deepEqual(unused.json.data.files.map(file => file.name), ['unused.png']);
+
+  const compressed = await request(fixture.handler, 'POST', '/media/used.png/compress', { headers, body: JSON.stringify({ quality: 82 }) });
+  assert.equal(compressed.statusCode, 200);
+  assert.equal(compressed.json.data.optimized, true);
+  assert.ok(compressed.json.data.size < compressed.json.data.originalSize);
+  assert.equal(fs.existsSync(path.join(fixture.baseDir, '.hexo-admin', 'backups', 'media', compressed.json.data.backupId)), true);
+});
+
+test('scheduled publishing persists tasks and publishes due drafts', async t => {
+  let intervalCallback;
+  let clock = new Date('2026-08-28T08:00:00.000Z');
+  const fixture = createFixture({
+    now: () => clock,
+    setInterval(callback) { intervalCallback = callback; return { unref() {} }; }
+  });
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  const created = await request(fixture.handler, 'POST', '/posts', { headers, body: JSON.stringify({ title: 'Scheduled Story', content: 'later' }) });
+  const draft = await request(fixture.handler, 'GET', '/posts/' + created.json.data._id, { headers });
+  const scheduled = await request(fixture.handler, 'POST', '/posts/' + created.json.data._id + '/schedule', {
+    headers, body: JSON.stringify({ publishAt: '2026-08-28T09:00:00.000Z', revision: draft.json.data.revision })
+  });
+  assert.equal(scheduled.statusCode, 200);
+  assert.equal(fs.existsSync(path.join(fixture.baseDir, '.hexo-admin', 'scheduled-posts.json')), true);
+  const before = await request(fixture.handler, 'GET', '/schedules', { headers });
+  assert.equal(before.json.data.total, 1);
+
+  clock = new Date('2026-08-28T09:01:00.000Z');
+  await intervalCallback();
+  assert.equal(fs.existsSync(path.join(fixture.postsDir, 'scheduled-story.md')), true);
+  assert.equal(fs.existsSync(path.join(fixture.draftsDir, 'scheduled-story.md')), false);
+  const after = await request(fixture.handler, 'GET', '/schedules', { headers });
+  assert.equal(after.json.data.total, 0);
 });
 
 test('render, taxonomy, theme and command endpoints respond successfully', async t => {
