@@ -33,8 +33,10 @@ function createFixture(runtime) {
 
   let posts = [];
   const calls = [];
+  const sourceProcesses = [];
 
   function processSource() {
+    sourceProcesses.push(Date.now());
     posts = fs.readdirSync(postsDir)
       .filter(name => name.endsWith('.md'))
       .map(name => {
@@ -95,7 +97,7 @@ function createFixture(runtime) {
   const config = { username: 'admin', password: 'secret', jwt_secret: 'test-secret', token_expiry: '2h' };
   const handler = createApiHandler(hexo, config, runtime);
   const cleanup = () => fs.rmSync(baseDir, { recursive: true, force: true });
-  return { baseDir, calls, cleanup, config, configPath, draftsDir, handler, hexo, postsDir, processSource, sourceDir };
+  return { baseDir, calls, cleanup, config, configPath, draftsDir, handler, hexo, postsDir, processSource, sourceDir, sourceProcesses };
 }
 
 function request(handler, method, url, options = {}) {
@@ -152,6 +154,15 @@ async function login(handler) {
   return response.json.data.token;
 }
 
+async function waitForCommandJob(handler, token, id) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = await request(handler, 'GET', '/commands/jobs/' + id, { headers: authHeaders(token) });
+    if (response.json.data.status === 'completed' || response.json.data.status === 'failed') return response.json.data;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  throw new Error('Command job did not finish');
+}
+
 function authHeaders(token, extra) {
   return { authorization: 'Bearer ' + token, 'content-type': 'application/json', ...(extra || {}) };
 }
@@ -164,6 +175,8 @@ test('authentication rejects malformed input without terminating later requests'
     body: '{', headers: { 'content-type': 'application/json' }
   });
   assert.equal(malformed.statusCode, 400);
+  assert.equal(malformed.headers['X-Content-Type-Options'], 'nosniff');
+  assert.equal(malformed.headers['X-Frame-Options'], 'DENY');
   assert.equal(malformed.json.error, 'Invalid JSON body');
   assert.equal(malformed.json.code, 'INVALID_JSON');
 
@@ -645,12 +658,14 @@ test('full-text search covers Markdown and Front Matter and bulk operations pref
 
   const refreshed = await request(fixture.handler, 'GET', '/posts?per_page=10', { headers });
   assert.notEqual(refreshed.json.data.posts.find(post => post._id === staleTarget._id).revision, staleTarget.revision);
+  const refreshCount = fixture.sourceProcesses.length;
   const published = await request(fixture.handler, 'POST', '/posts/bulk', {
     headers,
     body: JSON.stringify({ action: 'publish', items: refreshed.json.data.posts.map(post => ({ id: post._id, revision: post.revision })) })
   });
   assert.equal(published.statusCode, 200);
   assert.equal(published.json.data.processed, 2);
+  assert.equal(fixture.sourceProcesses.length, refreshCount + 1);
   assert.equal(fs.existsSync(path.join(fixture.postsDir, 'search-one.md')), true);
   assert.equal(fs.existsSync(path.join(fixture.postsDir, 'search-two.md')), true);
 });
@@ -664,13 +679,16 @@ test('media analysis reports references and compression keeps a recoverable back
   const oversized = await sharp({ create: { width: 320, height: 240, channels: 3, background: '#557267' } }).png({ compressionLevel: 0 }).toBuffer();
   fs.writeFileSync(path.join(imagesDir, 'used.png'), oversized);
   fs.writeFileSync(path.join(imagesDir, 'unused.png'), oversized);
-  fs.writeFileSync(path.join(fixture.postsDir, 'media-ref.md'), '---\ntitle: Media ref\n---\n![cover](/images/used.png)\n', 'utf8');
+  fs.mkdirSync(path.join(imagesDir, 'albums'), { recursive: true });
+  fs.writeFileSync(path.join(imagesDir, 'albums', 'nested.png'), oversized);
+  fs.writeFileSync(path.join(fixture.postsDir, 'media-ref.md'), '---\ntitle: Media ref\n---\n![cover](/images/used.png)\n![nested](/images/albums/nested.png)\n', 'utf8');
   await fixture.processSource();
 
   const analysis = await request(fixture.handler, 'GET', '/media/analysis', { headers });
-  assert.equal(analysis.json.data.used, 1);
+  assert.equal(analysis.json.data.used, 2);
   assert.equal(analysis.json.data.unused, 1);
   assert.equal(analysis.json.data.items.find(item => item.name === 'used.png').references[0].source, '_posts/media-ref.md');
+  assert.equal(analysis.json.data.items.find(item => item.name === 'albums/nested.png').referenceCount, 1);
   const unused = await request(fixture.handler, 'GET', '/media?usage=unused', { headers });
   assert.deepEqual(unused.json.data.files.map(file => file.name), ['unused.png']);
 
@@ -679,6 +697,14 @@ test('media analysis reports references and compression keeps a recoverable back
   assert.equal(compressed.json.data.optimized, true);
   assert.ok(compressed.json.data.size < compressed.json.data.originalSize);
   assert.equal(fs.existsSync(path.join(fixture.baseDir, '.hexo-admin', 'backups', 'media', compressed.json.data.backupId)), true);
+
+  const nested = await request(fixture.handler, 'GET', '/media?search=albums', { headers });
+  assert.deepEqual(nested.json.data.files.map(file => file.name), ['albums/nested.png']);
+  const renamed = await request(fixture.handler, 'PUT', '/media/' + encodeURIComponent('albums/nested.png') + '/rename', {
+    headers, body: JSON.stringify({ name: 'renamed.png' })
+  });
+  assert.equal(renamed.json.data.name, 'albums/renamed.png');
+  assert.equal(fs.existsSync(path.join(imagesDir, 'albums', 'renamed.png')), true);
 });
 
 test('scheduled publishing persists tasks and publishes due drafts', async t => {
@@ -733,7 +759,13 @@ test('render, taxonomy, theme and command endpoints respond successfully', async
 
   for (const command of ['generate', 'deploy', 'clean']) {
     const response = await request(fixture.handler, 'POST', '/commands/' + command, { headers });
-    assert.equal(response.statusCode, 200);
+    assert.equal(response.statusCode, 202);
+    assert.equal(response.json.data.job.command, command);
+    const job = await waitForCommandJob(fixture.handler, token, response.json.data.job.id);
+    assert.equal(job.status, 'completed');
+    assert.ok(job.logs.some(entry => entry.message.includes('hexo ' + command)));
   }
   assert.deepEqual(fixture.calls, ['generate', 'deploy', 'clean']);
+  const jobs = await request(fixture.handler, 'GET', '/commands/jobs?limit=2', { headers });
+  assert.equal(jobs.json.data.items.length, 2);
 });

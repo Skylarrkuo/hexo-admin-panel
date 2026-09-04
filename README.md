@@ -17,8 +17,10 @@
 - 新文章默认保存到 `source/_drafts`，发布和撤回会安全移动 Markdown 文件
 - 编辑器支持离开保护、本地自动保存和意外关闭后的草稿恢复
 - 服务端全文检索标题、正文、分类、标签和 Front Matter，支持批量发布、撤回和回收
-- 媒体库显示引用来源，可筛选未使用资源并压缩 JPEG、PNG 与 WebP
+- 媒体库递归管理 `source/images` 子目录，以完整相对路径分析引用，可筛选未使用资源并压缩 JPEG、PNG 与 WebP
 - 草稿支持持久化定时发布，Hexo 服务重启后任务仍会恢复
+- Front Matter 表单显式保留字符串、数字、布尔、空值、数组与对象类型
+- 生成、部署、清理和重建命令以后台任务运行，状态与最近日志会持久化
 
 ## 快速开始
 
@@ -60,6 +62,8 @@ admin:
 未设置管理员账号时，插件会临时使用 `admin/admin`。首次登录后必须设置一个不少于 12 个字符的新密码，之后才能进入管理后台。
 
 账号状态、回收站和配置备份保存在 Hexo 根目录的 `.hexo-admin/`。请将该目录加入 `.gitignore`，不要将其部署到公开站点。
+
+从旧版本升级时，插件会把非默认的明文管理员密码迁移为 `.hexo-admin/state.yml` 中的 PBKDF2 哈希，同时轮换 JWT 密钥。若凭据来自独立的 `_admin-config.yml`，迁移后会从该文件移除 `password`、`password_hash` 和 `jwt_secret`；若凭据写在 Hexo `_config.yml` 中，请在确认迁移成功后手动删除这些明文字段。
 
 ## 配置
 
@@ -130,16 +134,17 @@ Redefine 配置表单的字段名称和说明以中英双语元数据随插件�
 | 媒体压缩原图备份 | `.hexo-admin/backups/media/` |
 | 定时发布任务 | `.hexo-admin/scheduled-posts.json` |
 | 服务重启日志 | `.hexo-admin/restart.log` |
+| Hexo 命令任务与日志 | `.hexo-admin/jobs/` |
 
 随笔修改前会自动保存 YAML 快照，默认保留最近 20 份。旧随笔首次通过后台修改时会获得稳定的 `id` 字段，Redefine 会忽略该字段。
 
-媒体引用分析会扫描 `source/` 下的 Markdown、YAML、JSON、HTML 和 CSS 内容，并识别其中的 `/images/文件名`。压缩仅在新文件确实更小时替换原文件，每个资源默认保留最近 5 份原图备份。
+媒体引用分析会扫描 `source/` 下的 Markdown、YAML、JSON、HTML 和 CSS 内容，并识别其中的 `/images/相对路径`。资源库会递归展示图片子目录，不会再把不同目录下的同名文件视为同一资源。压缩仅在新文件确实更小时替换原文件，每个资源默认保留最近 5 份原图备份。
 
 定时发布依赖 Hexo 服务持续运行；设备休眠或服务短暂停止时，恢复后的下一轮检查会处理已经到期的任务。失败任务会保留错误状态，可在文章列表中取消或重新设置时间。
 
 ## 本地开发
 
-前端开发和构建需要 Node.js 20.19 或更高版本。普通用户使用 npm 包内已构建的前端资源，不需要安装 Vite。
+插件运行、前端开发和构建需要 Node.js 20 或更高版本。普通用户使用 npm 包内已构建的前端资源，不需要单独运行 Vite。
 
 将插件作为本地依赖加入 Hexo 项目：
 
@@ -216,10 +221,12 @@ admin/src/
 
 客户端应根据 `code` 处理错误，不要依赖 `error` 文案。
 
+`generate`、`deploy`、`clean` 与 `rebuild` 接口返回 HTTP `202` 和任务对象。可通过 `GET /admin/api/commands/jobs/:id` 查询状态与日志，或通过 `GET /admin/api/commands/jobs` 获取最近任务。任务状态为 `queued`、`running`、`completed` 或 `failed`。
+
 文章、About、随笔、站点配置和主题配置的修改都带有 revision。文件被其他窗口或外部程序修改后，旧页面的保存请求会返回 `409`，不会静默覆盖新内容。
 
 ## 版本与许可
 
-当前版本为 `3.1.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本为 `3.2.0`，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 本项目基于 [MIT License](LICENSE) 发布。

@@ -21,11 +21,7 @@
           <div class="form-row"><div class="form-group"><label>{{ tr('页面标题','Page title') }}</label><input v-model="editor.title" placeholder="About" @input="markDirty"></div><div class="form-group"><label>{{ tr('主题模板','Theme template') }}</label><input v-model="editor.template" placeholder="about" @input="markDirty"></div></div>
           <div class="form-group"><label>{{ tr('创建时间','Created at') }}</label><input v-model="editor.date" type="datetime-local" @input="markDirty"></div>
         </div>
-        <div class="front-matter-section mb-16">
-          <div class="flex justify-between items-center mb-8"><label class="extra-field-label">{{ tr('其他 Front Matter','Other Front Matter') }}</label><button class="btn btn-outline btn-sm" @click="addField">＋ {{ tr('添加字段','Add field') }}</button></div>
-          <div v-for="(field,index) in editor.frontMatterFields" :key="index" class="fm-row"><input v-model="field.key" :placeholder="tr('字段名','Field name')" style="flex:.4" @input="markDirty"><input v-model="field.value" :placeholder="tr('值','Value')" @input="markDirty"><button class="btn btn-danger btn-sm" :aria-label="tr('删除字段','Delete field')" @click="removeField(index)">×</button></div>
-          <div v-if="!editor.frontMatterFields.length" class="text-sm text-muted">{{ tr('当前没有额外字段。','No additional fields.') }}</div>
-        </div>
+        <FrontMatterFields :fields="editor.frontMatterFields" :label="tr('其他 Front Matter','Other Front Matter')" @change="markDirty" />
       </template>
 
       <div class="writing-workspace about-workspace" :class="'workspace-'+viewMode" :style="workspaceStyle">
@@ -54,7 +50,9 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { api } from '../api/client';
 import MarkdownCodeEditor from '../components/MarkdownCodeEditor.vue';
+import FrontMatterFields from '../components/FrontMatterFields.vue';
 import { renderMarkdown, sanitizeHtml } from '../utils/markdown';
+import { fieldsToFrontMatter, frontMatterFields } from '../utils/front-matter-fields';
 import { useI18n } from '../i18n';
 
 const {tr,errorMessage}=useI18n();
@@ -65,10 +63,10 @@ const loading=ref(true),saving=ref(false),mode=ref('visual'),viewMode=ref('split
 const viewOptions=computed(()=>[{value:'split',label:tr('分栏','Split')},{value:'md',label:tr('仅 Markdown','Markdown')},{value:'preview',label:tr('仅预览','Preview')}]);let previewTimer,previewRequest=0;
 const activeContent=computed({get:()=>mode.value==='source'?editor.sourceContent:editor.content,set:value=>{if(mode.value==='source')editor.sourceContent=value;else editor.content=value;}});
 const workspaceStyle=computed(()=>{const source=activeContent.value||'',chars=viewMode.value==='split'?54:92;const rows=source.split('\n').reduce((sum,line)=>sum+Math.max(1,Math.ceil(Array.from(line).length/chars)),0);return{'--workspace-auto-height':Math.min(viewMode.value==='split'?660:780,Math.max(320,105+rows*23))+'px'};});
-function notify(message,type='info'){emit('notify',message,type);}function displayValue(value){return typeof value==='string'?value:JSON.stringify(value);}function parseValue(value){try{return JSON.parse(value);}catch(_){return value;}}
+function notify(message,type='info'){emit('notify',message,type);}
 function toLocalDate(value){if(!value)return'';const date=new Date(value);if(Number.isNaN(date.getTime()))return String(value).replace(' ','T').slice(0,16);const pad=n=>String(n).padStart(2,'0');return date.getFullYear()+'-'+pad(date.getMonth()+1)+'-'+pad(date.getDate())+'T'+pad(date.getHours())+':'+pad(date.getMinutes());}
-function applyData(data){editor.title=data.title||'About';editor.date=toLocalDate(data.date);editor.template=data.template||'about';editor.content=data.content||'';editor.frontMatterFields=Object.entries(data.frontMatter||{}).map(([key,value])=>({key,value:displayValue(value)}));editor.visualDirty=false;updatePreview(editor.content);}
-function visualBody(){const frontMatter={};editor.frontMatterFields.forEach(field=>{const key=field.key.trim();if(key)frontMatter[key]=parseValue(field.value);});let date=editor.date?editor.date.replace('T',' '):'';if(date&&date.length===16)date+=':00';return{title:editor.title.trim()||'About',date,template:editor.template.trim()||'about',content:editor.content,frontMatter};}
+function applyData(data){editor.title=data.title||'About';editor.date=toLocalDate(data.date);editor.template=data.template||'about';editor.content=data.content||'';editor.frontMatterFields=frontMatterFields(data.frontMatter||{});editor.visualDirty=false;updatePreview(editor.content);}
+function visualBody(){const frontMatter=fieldsToFrontMatter(editor.frontMatterFields);let date=editor.date?editor.date.replace('T',' '):'';if(date&&date.length===16)date+=':00';return{title:editor.title.trim()||'About',date,template:editor.template.trim()||'about',content:editor.content,frontMatter};}
 async function load(){loading.value=true;try{const data=await api.get('/about');applyData(data);editor.sourceContent=data.raw||'';editor.revision=data.revision||'';editor.sourceDirty=false;}catch(error){notify(errorMessage(error),'error');}finally{loading.value=false;}}
 function markDirty(){editor.visualDirty=true;}function handleInput(){if(mode.value==='source')editor.sourceDirty=true;else editor.visualDirty=true;clearTimeout(previewTimer);previewTimer=setTimeout(()=>updatePreview(mode.value==='source'?sourceBody():editor.content),280);}
 async function updatePreview(content){const request=++previewRequest;preview.value=renderMarkdown(content||'');try{const data=await api.post('/render',{content:content||''});if(request===previewRequest)preview.value=sanitizeHtml(data.html);}catch(_){}}
@@ -76,7 +74,6 @@ function sourceBody(){const raw=(editor.sourceContent||'').replace(/\r\n?/g,'\n'
 async function switchMode(next){if(next===mode.value)return;try{if(next==='source'){if(editor.visualDirty){editor.sourceContent=(await api.post('/about/source/build',visualBody())).raw;editor.visualDirty=false;}updatePreview(sourceBody());}else if(editor.sourceDirty){applyData(await api.post('/about/source/parse',{raw:editor.sourceContent}));editor.sourceDirty=false;}mode.value=next;}catch(error){notify(errorMessage(error),'error');}}
 function setView(next){viewMode.value=next;if(next!=='md')updatePreview(mode.value==='source'?sourceBody():editor.content);}
 async function save(){if(mode.value==='visual'&&!editor.title.trim()){notify(tr('页面标题不能为空','Page title is required'),'error');return;}saving.value=true;try{const payload=mode.value==='source'?{raw:editor.sourceContent,revision:editor.revision}:{...visualBody(),revision:editor.revision};const data=await api.put('/about',payload);editor.revision=data.revision;editor.visualDirty=false;editor.sourceDirty=false;if(mode.value==='visual')editor.sourceContent=(await api.post('/about/source/build',visualBody())).raw;notify(tr('About 页面已保存','About page saved'),'success');}catch(error){notify(errorMessage(error),'error');}finally{saving.value=false;}}
-function addField(){editor.frontMatterFields.push({key:'',value:''});markDirty();}function removeField(index){editor.frontMatterFields.splice(index,1);markDirty();}
 function inputElement(){return markdownEditor.value?.element||null;}function insertFormat(before,after){if(mode.value!=='visual')return;const element=inputElement();if(!element)return;const start=element.selectionStart,end=element.selectionEnd,text=editor.content||'',selected=text.slice(start,end)||tr('文本','text');editor.content=text.slice(0,start)+before+selected+after+text.slice(end);handleInput();nextTick(()=>{element.focus();element.setSelectionRange(start+before.length,start+before.length+selected.length);});}
 function insertAtCursor(value){const element=inputElement();if(!element)return;const start=element.selectionStart;editor.content=editor.content.slice(0,start)+value+editor.content.slice(start);handleInput();nextTick(()=>{element.focus();element.setSelectionRange(start+value.length,start+value.length);});}
 async function upload(file){if(mode.value!=='visual'||!file?.type.startsWith('image/'))return;uploading.value=true;try{const form=new FormData();form.append('file',file);const data=await api.upload('/media/upload',form);insertAtCursor('!['+file.name.replace(/\.[^.]+$/,'')+']('+data.path+')');notify(tr('图片已插入 About 内容','Image inserted into the About page'),'success');}catch(error){notify(tr('图片上传失败：{message}','Image upload failed: {message}',{message:errorMessage(error)}),'error');}finally{uploading.value=false;}}

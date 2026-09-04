@@ -10,6 +10,7 @@ import PostsPage from './pages/PostsPage.vue';
 import MediaPage from './pages/MediaPage.vue';
 import { renderMarkdown } from './utils/markdown';
 import { fieldsFromSchema, sectionsFromSchema } from './utils/config-schema';
+import { fieldsToFrontMatter, frontMatterFields } from './utils/front-matter-fields';
 import { setLocale } from './i18n';
 
 describe('admin application', () => {
@@ -52,6 +53,13 @@ describe('admin application', () => {
     const html = renderMarkdown('<img src=x onerror="alert(1)"><script>alert(1)</script>');
     expect(html).not.toContain('onerror');
     expect(html).not.toContain('<script');
+  });
+
+  it('preserves explicit Front Matter value types', () => {
+    const fields=frontMatterFields({stringBoolean:'true',number:12,enabled:false,nested:{ok:true},list:['a'],empty:null});
+    expect(fields.find(field=>field.key==='stringBoolean').type).toBe('string');
+    expect(fieldsToFrontMatter(fields)).toEqual({stringBoolean:'true',number:12,enabled:false,nested:{ok:true},list:['a'],empty:null});
+    expect(()=>fieldsToFrontMatter([...fields,{key:'number',type:'string',value:'duplicate'}])).toThrow(/重复/);
   });
 
   it('provides a dedicated essays editor with sanitized Markdown preview', () => {

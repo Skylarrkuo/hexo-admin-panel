@@ -39,8 +39,15 @@ const ERROR_MESSAGES = {
   REVISION_REQUIRED: ['缺少版本信息，请刷新后重试', 'Version information is missing. Refresh and try again'],
   UPLOAD_CONTENT_MISMATCH: ['文件内容与扩展名不一致', 'The file content does not match its extension'],
   MEDIA_COMPRESSION_UNSUPPORTED: ['此文件类型不支持压缩', 'This file type cannot be compressed'],
+  INVALID_MEDIA_PATH: ['媒体路径无效', 'The media path is invalid'],
+  DUPLICATE_POST: ['批量操作中不能包含重复文章', 'A post cannot appear twice in a bulk operation'],
   SCHEDULE_DATE_INVALID: ['定时发布时间无效', 'The scheduled publish time is invalid'],
   POST_ALREADY_PUBLISHED: ['只能为草稿设置定时发布', 'Only drafts can be scheduled'],
+  COMMAND_JOB_NOT_FOUND: ['命令任务不存在', 'The command job was not found'],
+  COMMAND_FAILED: ['命令执行失败', 'The command failed'],
+  COMMAND_INTERRUPTED: ['命令因 Hexo 服务停止而中断', 'The command was interrupted when Hexo stopped'],
+  COMMAND_STATE_FAILED: ['无法保存命令任务状态', 'The command job state could not be saved'],
+  COMMAND_TIMEOUT: ['命令仍在后台执行，请稍后刷新查看', 'The command is still running. Refresh later to check it'],
   INTERNAL_ERROR: ['服务器处理失败，请稍后重试', 'The server could not complete the request. Try again later']
 };
 

@@ -1,6 +1,6 @@
 {
   "name": "hexo-admin-panel",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "A modular Vue-powered admin dashboard with direct Hexo API integration",
   "main": "index.js",
   "scripts": {
@@ -36,7 +36,7 @@
   },
   "homepage": "https://github.com/Skylarrkuo/hexo-admin-panel#readme",
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=20.0.0"
   },
   "files": [
     "index.js",

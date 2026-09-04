@@ -10,13 +10,14 @@ const root = path.resolve(__dirname, '..');
 test('Vue frontend is organized into feature pages, components and schema utilities', () => {
   const required = [
     'admin/src/App.vue', 'admin/src/main.js', 'admin/src/api/client.js', 'admin/src/utils/markdown.js',
-    'admin/src/layouts/AdminHeader.vue', 'admin/src/components/ConfigAtlas.vue',
+    'admin/src/layouts/AdminHeader.vue', 'admin/src/components/ConfigAtlas.vue', 'admin/src/components/FrontMatterFields.vue',
     'admin/src/pages/DashboardPage.vue', 'admin/src/pages/PostsPage.vue', 'admin/src/pages/MediaPage.vue',
     'admin/src/pages/PasswordChangePage.vue', 'admin/src/pages/TrashPage.vue',
     'admin/src/pages/PostEditorPage.vue', 'admin/src/pages/ConfigPage.vue',
     'admin/src/pages/ThemesPage.vue', 'admin/src/utils/config-schema.js', 'admin/vite.config.js',
     'lib/repositories/file-repository.js', 'lib/server/validation.js',
-    'lib/modules/media/references.js', 'lib/modules/schedule/service.js', 'lib/modules/schedule/routes.js'
+    'admin/src/utils/front-matter-fields.js', 'lib/modules/media/references.js', 'lib/modules/schedule/service.js', 'lib/modules/schedule/routes.js',
+    'lib/modules/commands/service.js'
   ];
   required.forEach(file => assert.equal(fs.existsSync(path.join(root, file)), true, file));
 });
@@ -43,6 +44,7 @@ test('package scripts enforce frontend tests and production build before packing
   assert.match(pkg.scripts.check, /lint/);
   assert.ok(pkg.scripts.coverage);
   assert.ok(pkg.files.includes('dist/'));
+  assert.match(pkg.engines.node, />=20/);
   assert.equal(fs.existsSync(path.join(root, 'eslint.config.mjs')), true);
   assert.equal(fs.existsSync(path.join(root, '.github', 'workflows', 'ci.yml')), true);
 });
