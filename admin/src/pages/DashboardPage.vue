@@ -20,6 +20,7 @@
       <div v-if="commandJob" class="command-job" :class="'job-'+commandJob.status">
         <div class="command-job-head"><strong>{{ commandJob.command }}</strong><span>{{ statusLabel(commandJob.status) }}</span></div>
         <div class="command-job-meta">{{ tr('任务编号','Job ID') }}：{{ commandJob.id }}</div>
+        <div class="progress-track"><i :style="{width:(commandJob.progress||0)+'%'}"></i></div>
         <div class="command-job-log"><div v-for="(entry,index) in commandJob.logs||[]" :key="index"><time>{{ formatTime(entry.at) }}</time><span>{{ entry.message }}</span></div></div>
       </div>
     </div>
@@ -51,5 +52,5 @@ const statItems = computed(() => [
 function formatDate(value) { if (!value) return '-'; const date = new Date(value); return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'); }
 function formatNumber(value) { return value >= 10000 ? (value / 10000).toFixed(1) + 'w' : String(value); }
 function formatTime(value){return value?new Date(value).toLocaleTimeString(locale.value==='en'?'en-US':'zh-CN',{hour12:false}):'';}
-function statusLabel(value){return({queued:tr('排队中','Queued'),running:tr('执行中','Running'),completed:tr('已完成','Completed'),failed:tr('失败','Failed')})[value]||value;}
+function statusLabel(value){return({queued:tr('排队中','Queued'),running:tr('执行中','Running'),cancelling:tr('取消中','Cancelling'),completed:tr('已完成','Completed'),failed:tr('失败','Failed'),cancelled:tr('已取消','Cancelled')})[value]||value;}
 </script>

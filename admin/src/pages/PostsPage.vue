@@ -19,7 +19,7 @@
           <td><span v-for="category in post.categories" :key="category" class="cat-badge">{{ category }}</span></td>
           <td><span v-for="tag in post.tags" :key="tag" class="tag-badge">{{ tag }}</span></td>
           <td class="text-sm">{{ post.wordCount }}</td>
-          <td><span :class="post.published?'status-published':'status-draft'">{{ post.published?tr('已发布','Published'):post.scheduleStatus==='failed'?tr('定时失败','Schedule failed'):post.scheduledAt?tr('定时发布','Scheduled'):tr('草稿','Draft') }}</span><small v-if="post.scheduledAt" class="schedule-time" :title="post.scheduleError||''">{{ formatDateTime(post.scheduledAt) }}</small></td>
+          <td><span :class="post.published?'status-published':'status-draft'">{{ workflowLabel(post) }}</span><small v-if="post.scheduledAt" class="schedule-time" :title="post.scheduleError||''">{{ formatDateTime(post.scheduledAt) }}</small></td>
           <td><div class="btn-group">
             <button class="btn btn-outline btn-sm" @click="$emit('edit',post._id)">{{ tr('编辑','Edit') }}</button>
             <button class="btn btn-sm" :class="post.published?'btn-warning':'btn-success'" @click="$emit('publish',post)">{{ post.published?tr('取消发布','Unpublish'):tr('发布','Publish') }}</button>
@@ -44,7 +44,7 @@ const {tr}=useI18n();
 const props=defineProps({ posts:Array, loading:Boolean, search:String, status:String, page:Number, total:Number, totalPages:Number, pageRange:Array });
 const emit = defineEmits(['update:search','update:status','update:page','search','reload','create','edit','publish','remove','bulk','schedule','cancel-schedule']);
 const selected=ref([]);const schedulePostId=ref('');const scheduleValue=ref('');
-const statuses=computed(()=>[{value:'all',label:tr('全部','All')},{value:'published',label:tr('已发布','Published')},{value:'draft',label:tr('草稿','Drafts')}]);
+const statuses=computed(()=>[{value:'all',label:tr('全部','All')},{value:'published',label:tr('已发布','Published')},{value:'draft',label:tr('全部草稿','All drafts')},{value:'in_progress',label:tr('未完成','In progress')},{value:'review',label:tr('待审核','In review')},{value:'scheduled',label:tr('计划中','Scheduled')}]);
 const selectedPosts=computed(()=>props.posts.filter(post=>selected.value.includes(post._id)));const allSelected=computed(()=>props.posts.length>0&&props.posts.every(post=>selected.value.includes(post._id)));
 function toggle(id,checked){selected.value=checked?[...new Set([...selected.value,id])]:selected.value.filter(value=>value!==id);}function togglePage(checked){selected.value=checked?props.posts.map(post=>post._id):[];}
 function localDate(value){const pad=number=>String(number).padStart(2,'0');return value.getFullYear()+'-'+pad(value.getMonth()+1)+'-'+pad(value.getDate())+'T'+pad(value.getHours())+':'+pad(value.getMinutes());}
@@ -53,5 +53,6 @@ function submitSchedule(post){if(!scheduleValue.value)return;const date=new Date
 function changePage(page){emit('update:page',page);emit('reload');}
 function formatDate(value){if(!value)return'-';const date=new Date(value);return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');}
 function formatDateTime(value){return value?new Date(value).toLocaleString():'';}
+function workflowLabel(post){if(post.scheduleStatus==='failed')return tr('定时失败','Schedule failed');return({published:tr('已发布','Published'),scheduled:tr('计划中','Scheduled'),in_progress:tr('未完成','In progress'),review:tr('待审核','In review'),draft:tr('草稿','Draft')})[post.workflowStatus]||tr('草稿','Draft');}
 watch(()=>props.posts,()=>{selected.value=selected.value.filter(id=>props.posts.some(post=>post._id===id));});
 </script>

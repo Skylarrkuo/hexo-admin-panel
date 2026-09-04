@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Hexo Admin Panel logo</title>
+  <desc id="description">A minimal H monogram inside a soft hexagonal mark.</desc>
+  <!-- Copyright (c) 2026 Skylarr Kuo. SPDX-License-Identifier: MIT -->
+  <path fill="#8b5961" d="M256 38c12 0 24 3 34 9l136 78c23 13 36 37 36 63v136c0 26-13 50-36 63l-136 78a68 68 0 0 1-68 0L86 387c-23-13-36-37-36-63V188c0-26 13-50 36-63l136-78c10-6 22-9 34-9Z"/>
+  <path fill="#f5f3ef" d="M151 142h68v82h74v-82h68v228h-68v-86h-74v86h-68z"/>
+</svg>

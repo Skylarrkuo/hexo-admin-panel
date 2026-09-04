@@ -8,6 +8,8 @@ import AboutPage from './pages/AboutPage.vue';
 import MarkdownCodeEditor from './components/MarkdownCodeEditor.vue';
 import PostsPage from './pages/PostsPage.vue';
 import MediaPage from './pages/MediaPage.vue';
+import TaxonomySelector from './components/TaxonomySelector.vue';
+import PluginAboutPage from './pages/PluginAboutPage.vue';
 import { renderMarkdown } from './utils/markdown';
 import { fieldsFromSchema, sectionsFromSchema } from './utils/config-schema';
 import { fieldsToFrontMatter, frontMatterFields } from './utils/front-matter-fields';
@@ -28,7 +30,7 @@ describe('admin application', () => {
 
   it('renders the existing login experience as a Vue component', () => {
     const wrapper = mount(App);
-    expect(wrapper.get('h2').text()).toBe('Hexo 后台管理');
+    expect(wrapper.get('h2').text()).toBe('Hexo Admin Panel');
     expect(wrapper.get('input[type="password"]').attributes('autocomplete')).toBe('current-password');
   });
 
@@ -43,7 +45,7 @@ describe('admin application', () => {
   it('switches and persists the complete interface language', async () => {
     const wrapper=mount(App);
     await wrapper.get('.language-toggle').trigger('click');
-    expect(wrapper.get('h2').text()).toBe('Hexo Admin');
+    expect(wrapper.get('h2').text()).toBe('Hexo Admin Panel');
     expect(wrapper.get('label[for="admin-username"]').text()).toBe('Username');
     expect(localStorage.getItem('hexo_admin_locale')).toBe('en');
     expect(document.documentElement.lang).toBe('en');
@@ -60,6 +62,17 @@ describe('admin application', () => {
     expect(fields.find(field=>field.key==='stringBoolean').type).toBe('string');
     expect(fieldsToFrontMatter(fields)).toEqual({stringBoolean:'true',number:12,enabled:false,nested:{ok:true},list:['a'],empty:null});
     expect(()=>fieldsToFrontMatter([...fields,{key:'number',type:'string',value:'duplicate'}])).toThrow(/重复/);
+  });
+
+  it('searches existing taxonomies and can create a new choice', async () => {
+    const wrapper=mount(TaxonomySelector,{props:{modelValue:'Hexo',label:'标签',placeholder:'搜索标签',options:[{name:'Hexo',count:2},{name:'Node.js',count:5}]}});
+    await wrapper.get('.taxonomy-control input').trigger('focus');
+    await wrapper.get('.taxonomy-control input').setValue('Node');
+    await wrapper.get('.taxonomy-options button').trigger('mousedown');
+    expect(wrapper.emitted('update:modelValue').at(-1)).toEqual(['Hexo, Node.js']);
+    await wrapper.get('.taxonomy-control input').setValue('New tag');
+    await wrapper.get('.taxonomy-control input').trigger('keydown.enter');
+    expect(wrapper.emitted('update:modelValue').at(-1)).toEqual(['Hexo, New tag']);
   });
 
   it('provides a dedicated essays editor with sanitized Markdown preview', () => {
@@ -197,6 +210,40 @@ describe('admin application', () => {
     await wrapper.get('.filter-tabs button:nth-child(2)').trigger('click');
     await flushPromises();
     expect(wrapper.text()).toContain('About 完整源码');
+    global.fetch=originalFetch;
+  });
+
+  it('explains the plugin and links its source, package, license, and attributions', async () => {
+    const originalFetch=global.fetch;
+    global.fetch=vi.fn(async()=>({status:200,json:async()=>({success:true,data:{
+      name:'hexo-admin-panel',version:'3.3.0',license:'MIT',copyright:'Copyright (c) 2026 Skylarr Kuo',
+      runtime:{node:'v20.19.0',hexo:'8.1.2',theme:'redefine'},
+      links:{repository:'https://github.com/Skylarrkuo/hexo-admin-panel',npm:'https://www.npmjs.com/package/hexo-admin-panel',issues:'https://github.com/Skylarrkuo/hexo-admin-panel/issues',license:'https://github.com/Skylarrkuo/hexo-admin-panel/blob/master/LICENSE',notices:'https://github.com/Skylarrkuo/hexo-admin-panel/blob/master/THIRD_PARTY_NOTICES.md'},
+      attributions:[{name:'Vue',version:'3.5.41',scope:'bundled',purposeZh:'管理后台界面运行时',purposeEn:'Admin interface runtime',copyright:'Copyright (c) 2018-present, Yuxi (Evan) You',license:'MIT',licenseUrl:'https://github.com/vuejs/core/blob/main/LICENSE',url:'https://github.com/vuejs/core'}]
+    }})}));
+    const wrapper=mount(PluginAboutPage);
+    await flushPromises();
+    expect(wrapper.text()).toContain('把 Hexo 的文件工作流');
+    expect(wrapper.text()).toContain('v20.19.0');
+    expect(wrapper.text()).toContain('Vue');
+    expect(wrapper.text()).toContain('Copyright (c) 2018-present, Yuxi (Evan) You');
+    expect(wrapper.text()).toContain('3.5.41');
+    expect(wrapper.get('a[href="https://github.com/Skylarrkuo/hexo-admin-panel"]').attributes('target')).toBe('_blank');
+    expect(wrapper.get('a[href="https://www.npmjs.com/package/hexo-admin-panel"]').exists()).toBe(true);
+    expect(wrapper.get('a[href$="THIRD_PARTY_NOTICES.md"]').exists()).toBe(true);
+    expect(wrapper.get('.plugin-brand-plate img').attributes('src')).toMatch(/^(data:image\/svg\+xml|.*hexo-admin-panel-logo)/);
+    global.fetch=originalFetch;
+  });
+
+  it('keeps the complete third-party notice list visible when runtime metadata is unavailable', async () => {
+    const originalFetch=global.fetch;
+    global.fetch=vi.fn(async()=>{throw new Error('backend restarting');});
+    const wrapper=mount(PluginAboutPage);
+    await flushPromises();
+    expect(wrapper.findAll('.plugin-attribution-grid li')).toHaveLength(7);
+    expect(wrapper.text()).toContain('Copyright 2013 Lovell Fuller and others');
+    expect(wrapper.text()).toContain('Copyright (c) Cure53 and other contributors');
+    expect(wrapper.text()).not.toContain('完整版本与传递依赖许可可在');
     global.fetch=originalFetch;
   });
 });

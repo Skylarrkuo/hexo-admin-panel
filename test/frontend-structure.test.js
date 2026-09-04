@@ -17,7 +17,12 @@ test('Vue frontend is organized into feature pages, components and schema utilit
     'admin/src/pages/ThemesPage.vue', 'admin/src/utils/config-schema.js', 'admin/vite.config.js',
     'lib/repositories/file-repository.js', 'lib/server/validation.js',
     'admin/src/utils/front-matter-fields.js', 'lib/modules/media/references.js', 'lib/modules/schedule/service.js', 'lib/modules/schedule/routes.js',
-    'lib/modules/commands/service.js'
+    'lib/modules/commands/service.js', 'lib/modules/pages/service.js', 'lib/modules/pages/routes.js',
+    'lib/modules/previews/service.js', 'lib/modules/previews/routes.js', 'lib/modules/scaffolds/service.js',
+    'lib/modules/taxonomies/service.js', 'admin/src/components/TaxonomySelector.vue',
+    'admin/src/pages/PagesPage.vue', 'admin/src/pages/PageEditorPage.vue', 'admin/src/pages/PublishingPage.vue',
+    'admin/src/pages/TaxonomiesPage.vue', 'admin/src/pages/PluginAboutPage.vue',
+    'lib/modules/system/routes.js', 'assets/hexo-admin-panel-logo.svg', 'README_EN.md', 'THIRD_PARTY_NOTICES.md'
   ];
   required.forEach(file => assert.equal(fs.existsSync(path.join(root, file)), true, file));
 });
@@ -44,9 +49,48 @@ test('package scripts enforce frontend tests and production build before packing
   assert.match(pkg.scripts.check, /lint/);
   assert.ok(pkg.scripts.coverage);
   assert.ok(pkg.files.includes('dist/'));
+  assert.ok(pkg.files.includes('assets/'));
+  assert.ok(pkg.files.includes('README_EN.md'));
+  assert.ok(pkg.files.includes('THIRD_PARTY_NOTICES.md'));
   assert.match(pkg.engines.node, />=20/);
   assert.equal(fs.existsSync(path.join(root, 'eslint.config.mjs')), true);
   assert.equal(fs.existsSync(path.join(root, '.github', 'workflows', 'ci.yml')), true);
+});
+
+test('project logo stays minimal and uses the admin panel plum palette', () => {
+  const logo = fs.readFileSync(path.join(root, 'assets', 'hexo-admin-panel-logo.svg'), 'utf8');
+  assert.match(logo, /#8b5961/);
+  assert.match(logo, /#f5f3ef/);
+  assert.doesNotMatch(logo, /#14362d|linearGradient|<circle|stroke=/);
+  assert.equal((logo.match(/<path/g) || []).length, 2);
+});
+
+test('visible product branding consistently uses Hexo Admin Panel', () => {
+  const header = fs.readFileSync(path.join(root, 'admin', 'src', 'layouts', 'AdminHeader.vue'), 'utf8');
+  const login = fs.readFileSync(path.join(root, 'admin', 'src', 'pages', 'LoginPage.vue'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'admin', 'index.html'), 'utf8');
+  for (const source of [header, login, html]) assert.match(source, /Hexo Admin Panel/);
+  assert.doesNotMatch([header, login, html].join('\n'), /Hexo Studio|Hexo 后台管理|>Hexo Admin</);
+});
+
+test('README presents the release identity, onboarding and explicit open-source references', () => {
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  assert.match(readme, /assets\/hexo-admin-panel-logo\.svg/);
+  assert.match(readme, /href="\.\/README_EN\.md">English<\/a>/);
+  assert.match(readme, /actions\/workflows\/ci\.yml\/badge\.svg/);
+  assert.match(readme, /npmjs\.com\/package\/hexo-admin-panel/);
+  assert.match(readme, /## 快速开始/);
+  assert.match(readme, /## 兼容性与运行边界/);
+  assert.match(readme, /## 开源许可与引用/);
+  for (const project of ['Hexo', 'hexo-front-matter', 'js-yaml', 'sharp', 'Vue', 'marked', 'DOMPurify']) {
+    assert.match(readme, new RegExp('\\[' + project.replace('-', '\\-') + '\\]'));
+  }
+  assert.doesNotMatch(readme, /关键开源组件\s*\n\s*-\s*\n/);
+
+  const english = fs.readFileSync(path.join(root, 'README_EN.md'), 'utf8');
+  assert.match(english, /href="\.\/README\.md">简体中文<\/a>/);
+  assert.match(english, /## Quick start/);
+  assert.match(english, /## Open-source licenses and attributions/);
 });
 
 test('dark mode covers raised surfaces, overlays, editors and theme previews', () => {

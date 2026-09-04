@@ -22,10 +22,15 @@
       <div :key="route" class="page-view">
       <DashboardPage v-if="route==='/dashboard'" :stats="stats" :recent-posts="recentPosts" :command-loading="commandLoading" :command-job="commandJob" @command="runCommand" @edit="editPost" @create="go('/posts/new')" />
       <PostsPage v-else-if="route==='/posts'" :posts="posts" :loading="postsLoading" :search="postSearch" :status="postStatus" :page="postPage" :total="postTotal" :total-pages="postTotalPages" :page-range="paginationRange" @update:search="postSearch=$event" @update:status="postStatus=$event" @update:page="postPage=$event" @search="debouncedPosts" @reload="loadPosts" @create="go('/posts/new')" @edit="editPost" @publish="togglePublish" @remove="deletePost" @bulk="bulkPosts" @schedule="schedulePost" @cancel-schedule="cancelSchedule" />
-      <NewPostPage v-else-if="route==='/posts/new'" :title="newPostTitle" @update:title="newPostTitle=$event" @create="createPost" @cancel="go('/posts')" />
+      <NewPostPage v-else-if="route==='/posts/new'" @create="createPost" @cancel="go('/posts')" @notify="toast" />
       <PostEditorPage v-else-if="route.startsWith('/posts/edit/')" :post-id="route.split('/')[3]" @cancel="go('/posts')" @saved="go('/posts')" @notify="toast" @dirty-change="editorDirty=$event" />
       <EssaysPage v-else-if="route==='/essays'" @notify="toast" @request-confirm="confirmAction" />
       <AboutPage v-else-if="route==='/about'" @notify="toast" />
+      <PagesPage v-else-if="route==='/pages'" @edit="editPage" @notify="toast" @request-confirm="confirmAction" />
+      <PageEditorPage v-else-if="route.startsWith('/pages/edit/')" :page-id="route.split('/')[3]" @cancel="go('/pages')" @notify="toast" />
+      <PublishingPage v-else-if="route==='/publishing'" @notify="toast" />
+      <TaxonomiesPage v-else-if="route==='/taxonomies'" @notify="toast" @request-confirm="confirmAction" />
+      <PluginAboutPage v-else-if="route==='/plugin'" />
       <MediaPage v-else-if="route==='/media'" :files="mediaFiles" :loading="mediaLoading" :search="mediaSearch" :usage="mediaUsage" :compressing="mediaCompressing" :page="mediaPage" :total-pages="mediaTotalPages" @update:search="mediaSearch=$event" @update:usage="mediaUsage=$event" @update:page="mediaPage=$event" @search="debouncedMedia" @reload="loadMedia" @upload="uploadMedia" @copy="copyUrl" @rename="renameMedia" @compress="compressMedia" @remove="deleteMedia" />
       <TrashPage v-else-if="route==='/trash'" :items="trashItems" :loading="trashLoading" @reload="loadTrash" @restore="restoreTrash" @remove="removeTrash" />
       <ConfigPage v-else-if="route==='/config'" @notify="toast" @request-confirm="confirmAction" @saved-restart="restartAfterConfig" />
@@ -47,6 +52,11 @@ import ConfigPage from './pages/ConfigPage.vue';
 import DashboardPage from './pages/DashboardPage.vue';
 import EssaysPage from './pages/EssaysPage.vue';
 import AboutPage from './pages/AboutPage.vue';
+import PagesPage from './pages/PagesPage.vue';
+import PageEditorPage from './pages/PageEditorPage.vue';
+import PublishingPage from './pages/PublishingPage.vue';
+import TaxonomiesPage from './pages/TaxonomiesPage.vue';
+import PluginAboutPage from './pages/PluginAboutPage.vue';
 import LoginPage from './pages/LoginPage.vue';
 import MediaPage from './pages/MediaPage.vue';
 import NewPostPage from './pages/NewPostPage.vue';
@@ -69,7 +79,7 @@ const loginForm=reactive({username:'',password:''});const loginLoading=ref(false
 const passwordForm=reactive({currentPassword:'',newPassword:'',confirmPassword:''});const passwordLoading=ref(false);
 const confirmDialog=reactive({show:false,title:'',message:'',onOk:null});
 const stats=ref({});const recentPosts=ref([]);const commandLoading=ref(false);const commandJob=ref(null);
-const posts=ref([]);const postSearch=ref('');const postStatus=ref('all');const postPage=ref(1);const postTotal=ref(0);const postTotalPages=ref(0);const postsLoading=ref(false);const newPostTitle=ref('');
+const posts=ref([]);const postSearch=ref('');const postStatus=ref('all');const postPage=ref(1);const postTotal=ref(0);const postTotalPages=ref(0);const postsLoading=ref(false);
 const mediaFiles=ref([]);const mediaSearch=ref('');const mediaUsage=ref('all');const mediaPage=ref(1);const mediaTotalPages=ref(0);const mediaLoading=ref(false);const mediaCompressing=ref('');
 const trashItems=ref([]);const trashLoading=ref(false);
 const themes=ref([]);const themesLoading=ref(false);
@@ -79,10 +89,15 @@ const pageMeta=computed(()=>{
   if(route.value==='/dashboard')return{title:tr('工作概览','Dashboard'),kicker:'Overview',context:tr('今天也适合写点什么','A good day to write something')};
   if(route.value==='/posts/new')return{title:tr('创建文章','Create post'),kicker:'New post',context:tr('从一个好标题开始','Start with a clear title')};
   if(route.value.startsWith('/posts/edit/'))return{title:tr('编辑文章','Edit post'),kicker:'Editor',context:tr('更改保存在 Markdown 源文件','Changes are saved to the Markdown source')};
+  if(route.value.startsWith('/pages/edit/'))return{title:tr('编辑页面','Edit page'),kicker:'Page editor',context:tr('使用真实主题构建确认最终效果','Build with the real theme before publishing')};
   const pages={
     '/posts':{title:tr('文章管理','Posts'),kicker:'Content',context:tr(`共 ${postTotal.value} 篇内容`,`${postTotal.value} items`)},
     '/essays':{title:tr('随笔管理','Essays'),kicker:'Notes',context:tr('收录日常片段与灵感','Keep everyday notes and ideas')},
     '/about':{title:tr('关于页面','About page'),kicker:'About',context:tr('编辑访客认识你的第一封信','Shape how visitors get to know you')},
+    '/pages':{title:tr('页面管理','Pages'),kicker:'Pages',context:tr('独立页面、模板与主题菜单','Standalone pages, templates, and theme menus')},
+    '/publishing':{title:tr('发布中心','Publishing'),kicker:'Operations',context:tr('计划、进度、日志与历史','Schedules, progress, logs, and history')},
+    '/taxonomies':{title:tr('分类标签中心','Taxonomies'),kicker:'Structure',context:tr('维护内容分类体系','Maintain your content taxonomy')},
+    '/plugin':{title:tr('关于插件','About this plugin'),kicker:'Open source',context:tr('了解设计、许可与项目出处','Design, license, and project provenance')},
     '/media':{title:tr('媒体资源','Media'),kicker:'Library',context:tr('管理站点图片与附件','Manage site images and attachments')},
     '/trash':{title:tr('回收站','Trash'),kicker:'Recovery',context:tr('可恢复最近删除的内容','Recover recently deleted content')},
     '/config':{title:tr('站点配置','Settings'),kicker:'Settings',context:tr('谨慎修改并保留备份','Edit carefully and keep backups')},
@@ -103,13 +118,14 @@ function toggleColorMode(){colorMode.value=colorMode.value==='dark'?'light':'dar
 async function loadDashboard(){try{const [summary,recent,jobs]=await Promise.all([api.get('/stats'),api.get('/posts?page=1&per_page=5&status=published'),api.get('/commands/jobs?limit=1')]);stats.value=summary;recentPosts.value=recent.posts||[];if(jobs.items?.length)commandJob.value=jobs.items[0];}catch(error){toast(errorMessage(error),'error');}}
 function runCommand(command){if(command==='rebuild-restart'){confirmAction(tr('重新构建并重启','Rebuild and restart'),tr('将先清理和生成站点，然后重启当前 Hexo 服务。管理页会短暂断开。','Hexo will clean and generate the site, then restart the current service. The panel will disconnect briefly.'),()=>executeCommand(command));return;}executeCommand(command);}
 async function executeCommand(command){commandLoading.value=command;try{const data=await api.post('/commands/'+command);commandJob.value=data.job||null;if(command==='rebuild-restart'){toast(locale.value==='en'?tr('命令执行成功','Command completed'):data.message,'success');await waitForRestart(data.previousInstanceId);return;}if(data.job)await waitForCommandJob(data.job.id);else toast(locale.value==='en'?tr('命令执行成功','Command completed'):data.message,'success');}catch(error){toast(errorMessage(error),'error');commandLoading.value=false;}finally{if(command!=='rebuild-restart')commandLoading.value=false;}}
-async function waitForCommandJob(id){for(let attempt=0;attempt<240;attempt+=1){const job=await api.get('/commands/jobs/'+id);commandJob.value=job;if(job.status==='completed'){toast(locale.value==='en'?tr('命令执行成功','Command completed'):(job.result?.message||tr('命令执行成功','Command completed')),'success');return;}if(job.status==='failed'){const error=new Error(job.error||tr('命令执行失败','Command failed'));error.code=job.errorCode||'COMMAND_FAILED';throw error;}await new Promise(resolve=>setTimeout(resolve,500));}const error=new Error(tr('命令仍在后台执行，请稍后刷新查看','The command is still running. Refresh later to check it'));error.code='COMMAND_TIMEOUT';throw error;}
+async function waitForCommandJob(id){for(let attempt=0;attempt<240;attempt+=1){let job;try{job=await api.get('/commands/jobs/'+id);}catch(error){if(attempt===239)throw error;await new Promise(resolve=>setTimeout(resolve,500));continue;}commandJob.value=job;if(job.status==='completed'){toast(locale.value==='en'?tr('命令执行成功','Command completed'):(job.result?.message||tr('命令执行成功','Command completed')),'success');return;}if(['failed','cancelled'].includes(job.status)){const error=new Error(job.error||tr('命令执行失败','Command failed'));error.code=job.errorCode||(job.status==='cancelled'?'COMMAND_CANCELLED':'COMMAND_FAILED');throw error;}await new Promise(resolve=>setTimeout(resolve,500));}const error=new Error(tr('命令仍在后台执行，请稍后刷新查看','The command is still running. Refresh later to check it'));error.code='COMMAND_TIMEOUT';throw error;}
 function restartAfterConfig(){toast(tr('配置已保存，正在重新构建并重启 Hexo…','Configuration saved. Rebuilding and restarting Hexo…'),'info');executeCommand('rebuild-restart');}
 async function waitForRestart(previousInstanceId){await new Promise(resolve=>setTimeout(resolve,800));for(let attempt=0;attempt<120;attempt+=1){try{const status=await api.get('/auth/verify');if(status.instanceId&&status.instanceId!==previousInstanceId){location.reload();return;}}catch(_){}await new Promise(resolve=>setTimeout(resolve,500));}toast(tr('未检测到新的服务实例，请查看 .hexo-admin/restart.log','No new service instance was detected. Check .hexo-admin/restart.log'),'error');commandLoading.value=false;}
 async function loadPosts(){postsLoading.value=true;try{const query=new URLSearchParams({page:String(postPage.value),per_page:'15',status:postStatus.value});if(postSearch.value)query.set('search',postSearch.value);const data=await api.get('/posts?'+query);posts.value=data.posts||[];postTotal.value=data.total;postTotalPages.value=data.total_pages;}catch(error){toast(errorMessage(error),'error');}finally{postsLoading.value=false;}}
 function debouncedPosts(){clearTimeout(postSearchTimer);postSearchTimer=setTimeout(()=>{postPage.value=1;loadPosts();},300);}
-async function createPost(){if(!newPostTitle.value.trim()){toast(tr('请输入文章标题','Enter a post title'),'error');return;}try{const data=await api.post('/posts',{title:newPostTitle.value.trim(),published:false});newPostTitle.value='';toast(tr('草稿已创建','Draft created'),'success');go(data._id?'/posts/edit/'+data._id:'/posts');}catch(error){toast(errorMessage(error),'error');}}
+async function createPost(form){if(!form.title?.trim()){toast(tr('请输入文章标题','Enter a post title'),'error');return;}let data;try{data=await api.post('/posts',{title:form.title.trim(),scaffold:form.scaffold||undefined,workflowStatus:form.workflowStatus,published:form.workflowStatus==='published'});}catch(error){toast(errorMessage(error),'error');return;}if(form.workflowStatus==='scheduled'){try{await api.post('/posts/'+data._id+'/schedule',{publishAt:form.publishAt,revision:data.revision,maxAttempts:form.maxAttempts,retryDelayMinutes:form.retryDelayMinutes});}catch(error){toast(tr('文章已创建，但定时任务保存失败：{message}','The post was created, but its schedule could not be saved: {message}',{message:errorMessage(error)}),'error');go(data._id?'/posts/edit/'+data._id:'/posts');return;}}toast(form.workflowStatus==='published'?tr('文章已发布','Post published'):form.workflowStatus==='scheduled'?tr('文章已加入发布计划','Post scheduled'):tr('内容已创建','Content created'),'success');go(data._id?'/posts/edit/'+data._id:'/posts');}
 function editPost(id){go('/posts/edit/'+id);}
+function editPage(id){go('/pages/edit/'+id);}
 async function togglePublish(post){try{const data=await api.put('/posts/'+post._id+'/publish',{published:!post.published,revision:post.revision});post.published=data.published;post.revision=data.revision;if(data._id)post._id=data._id;if(post.published){post.scheduledAt=null;post.scheduleId=null;}toast(post.published?tr('文章已发布','Post published'):tr('文章已转为草稿','Post moved to drafts'),'success');}catch(error){toast(errorMessage(error),'error');}}
 async function bulkPosts(action,selected){const execute=async()=>{try{await api.post('/posts/bulk',{action,items:selected.map(post=>({id:post._id,revision:post.revision}))});toast(tr('已完成 {count} 篇文章的批量操作','Bulk operation completed for {count} posts',{count:selected.length}),'success');loadPosts();}catch(error){toast(errorMessage(error),'error');}};if(action==='delete'){confirmAction(tr('批量删除文章','Delete posts'),tr('确定删除选中的 {count} 篇文章吗？文件会移入回收站。','Delete the {count} selected posts? They will be moved to trash.',{count:selected.length}),execute);return;}await execute();}
 async function schedulePost(post,publishAt){try{await api.post('/posts/'+post._id+'/schedule',{publishAt,revision:post.revision});toast(tr('已设置定时发布','Scheduled publish saved'),'success');loadPosts();}catch(error){toast(errorMessage(error),'error');}}
@@ -130,7 +146,7 @@ async function loadTrash(){trashLoading.value=true;try{trashItems.value=(await a
 async function restoreTrash(item){try{await api.post('/trash/'+encodeURIComponent(item.id)+'/restore');toast(tr('已恢复 {name}','Restored {name}',{name:item.name}),'success');loadTrash();}catch(error){toast(errorMessage(error),'error');}}
 function removeTrash(item){confirmAction(tr('永久删除','Delete permanently'),tr('永久删除「{name}」后无法恢复。','“{name}” cannot be recovered after permanent deletion.',{name:item.name}),async()=>{try{await api.del('/trash/'+encodeURIComponent(item.id));toast(tr('已永久删除','Deleted permanently'),'success');loadTrash();}catch(error){toast(errorMessage(error),'error');}});}
 async function loadThemes(){themesLoading.value=true;try{themes.value=(await api.get('/themes')).themes||[];}catch(error){toast(errorMessage(error),'error');}finally{themesLoading.value=false;}}
-function handleRoute(){const next=location.hash.slice(1)||'/dashboard';if(next!==route.value&&!confirmEditorLeave()){location.hash='#'+route.value;return;}if(next!==route.value)editorDirty.value=false;route.value=next;if(!authenticated.value||mustChangePassword.value)return;if(route.value==='/dashboard')loadDashboard();else if(route.value==='/posts'){postPage.value=1;loadPosts();}else if(route.value==='/posts/new')newPostTitle.value='';else if(route.value==='/media'){mediaPage.value=1;loadMedia();}else if(route.value==='/trash')loadTrash();else if(route.value==='/themes')loadThemes();}
+function handleRoute(){const next=location.hash.slice(1)||'/dashboard';if(next!==route.value&&!confirmEditorLeave()){location.hash='#'+route.value;return;}if(next!==route.value)editorDirty.value=false;route.value=next;if(!authenticated.value||mustChangePassword.value)return;if(route.value==='/dashboard')loadDashboard();else if(route.value==='/posts'){postPage.value=1;loadPosts();}else if(route.value==='/media'){mediaPage.value=1;loadMedia();}else if(route.value==='/trash')loadTrash();else if(route.value==='/themes')loadThemes();}
 onMounted(async()=>{await verify();window.addEventListener('hashchange',handleRoute);handleRoute();});
 onBeforeUnmount(()=>{window.removeEventListener('hashchange',handleRoute);clearTimeout(postSearchTimer);clearTimeout(mediaSearchTimer);});
 </script>

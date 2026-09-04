@@ -1,7 +1,7 @@
 <template>
   <div class="login-wrap">
     <div class="login-box">
-      <h2>{{ tr('Hexo 后台管理','Hexo Admin') }}</h2>
+      <h2>Hexo Admin Panel</h2>
       <form @submit.prevent="$emit('submit')">
         <div class="form-group">
           <label for="admin-username">{{ tr('用户名','Username') }}</label>

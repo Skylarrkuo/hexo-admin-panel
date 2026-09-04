@@ -48,6 +48,22 @@ const ERROR_MESSAGES = {
   COMMAND_INTERRUPTED: ['命令因 Hexo 服务停止而中断', 'The command was interrupted when Hexo stopped'],
   COMMAND_STATE_FAILED: ['无法保存命令任务状态', 'The command job state could not be saved'],
   COMMAND_TIMEOUT: ['命令仍在后台执行，请稍后刷新查看', 'The command is still running. Refresh later to check it'],
+  COMMAND_CANCELLED: ['命令已取消', 'The command was cancelled'],
+  COMMAND_NOT_CANCELLABLE: ['该命令已经结束，无法取消', 'This command has already finished and cannot be cancelled'],
+  COMMAND_NOT_RETRYABLE: ['该命令无法重试', 'This command cannot be retried'],
+  PAGE_ID_INVALID: ['页面编号无效', 'The page ID is invalid'],
+  PAGE_NOT_FOUND: ['页面不存在', 'The page was not found'],
+  PAGE_PATH_INVALID: ['页面路径无效', 'The page path is invalid'],
+  PAGE_PATH_CONFLICT: ['页面路径已存在', 'The page path already exists'],
+  PAGE_REVISION_CONFLICT: ['页面已在其他位置修改，请刷新后重试', 'This page changed elsewhere. Refresh and try again'],
+  MENU_REVISION_CONFLICT: ['主题菜单已在其他位置修改，请刷新后重试', 'The theme menu changed elsewhere. Refresh and try again'],
+  TAXONOMY_INVALID: ['分类标签操作无效', 'The taxonomy operation is invalid'],
+  TAXONOMY_NOT_FOUND: ['没有文章使用该分类或标签', 'No posts use this taxonomy'],
+  PREVIEW_NOT_FOUND: ['主题预览不存在或已经过期', 'The theme preview was not found or has expired'],
+  PREVIEW_OUTPUT_NOT_FOUND: ['构建完成，但未找到目标预览页面', 'The build completed but the preview page was not found'],
+  SCAFFOLD_NOT_FOUND: ['Hexo 模板不存在', 'The Hexo scaffold was not found'],
+  SCHEDULE_NOT_RETRYABLE: ['该定时任务无法重试', 'This schedule cannot be retried'],
+  SCHEDULE_NOT_CANCELLABLE: ['该定时任务已经结束，无法取消', 'This schedule has already finished and cannot be cancelled'],
   INTERNAL_ERROR: ['服务器处理失败，请稍后重试', 'The server could not complete the request. Try again later']
 };
 

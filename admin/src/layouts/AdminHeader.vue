@@ -1,8 +1,8 @@
 <template>
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true"><span>H</span></div>
-      <div><strong>Hexo Studio</strong><span>{{ tr('内容工作台','Publishing workspace') }}</span></div>
+      <div class="brand-mark" aria-hidden="true"><img :src="logoUrl" alt=""></div>
+      <div><strong>Hexo Admin Panel</strong><span>{{ tr('内容工作台','Publishing workspace') }}</span></div>
     </div>
     <div class="site-state"><span class="state-pulse"></span><div><strong>{{ tr('站点已连接','Site connected') }}</strong><span>{{ tr('本地工作区','Local workspace') }}</span></div></div>
     <nav :aria-label="tr('后台导航','Admin navigation')">
@@ -23,15 +23,17 @@
 import AppIcon from '../components/AppIcon.vue';
 import { computed } from 'vue';
 import { useI18n } from '../i18n';
+import logoUrl from '../../../assets/hexo-admin-panel-logo.svg';
 const props = defineProps({ route: { type: String, required: true }, colorMode: { type: String, default: 'light' } });
 defineEmits(['navigate', 'logout', 'toggle-theme']);
 const {locale,tr,toggleLocale}=useI18n();
 const items = computed(() => [
-  { path: '/dashboard', label: tr('工作概览','Dashboard'), icon: 'dashboard' }, { path: '/posts', label: tr('文章管理','Posts'), icon: 'posts' }, { path: '/essays', label: tr('随笔管理','Essays'), icon: 'essays' }, { path: '/about', label: tr('关于页面','About'), icon: 'about' },
-  { path: '/media', label: tr('媒体资源','Media'), icon: 'media' }, { path: '/trash', label: tr('回收站','Trash'), icon: 'trash' }, { path: '/config', label: tr('站点配置','Settings'), icon: 'config' }, { path: '/themes', label: tr('主题外观','Themes'), icon: 'themes' }
+  { path: '/dashboard', label: tr('工作概览','Dashboard'), icon: 'dashboard' }, { path: '/posts', label: tr('文章管理','Posts'), icon: 'posts' }, { path: '/pages', label: tr('页面管理','Pages'), icon: 'about' }, { path: '/taxonomies', label: tr('分类标签','Taxonomies'), icon: 'taxonomy' },
+  { path: '/publishing', label: tr('发布中心','Publishing'), icon: 'publishing' }, { path: '/essays', label: tr('随笔管理','Essays'), icon: 'essays' }, { path: '/media', label: tr('媒体资源','Media'), icon: 'media' }, { path: '/trash', label: tr('回收站','Trash'), icon: 'trash' }, { path: '/config', label: tr('站点配置','Settings'), icon: 'config' }, { path: '/themes', label: tr('主题外观','Themes'), icon: 'themes' }, { path: '/plugin', label: tr('关于插件','About plugin'), icon: 'plugin' }
 ]);
 function isActive(path) {
   if (path === '/posts') return props.route === '/posts' || props.route === '/posts/new' || props.route.startsWith('/posts/edit');
+  if (path === '/pages') return props.route === '/pages' || props.route.startsWith('/pages/edit');
   return props.route === path;
 }
 </script>

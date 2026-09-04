@@ -80,6 +80,7 @@ function createFixture(runtime) {
   const hexo = {
     base_dir: baseDir + path.sep,
     source_dir: sourceDir + path.sep,
+    public_dir: path.join(baseDir, 'public') + path.sep,
     config_path: configPath,
     config: { root: '/', new_post_name: ':title.md', theme: 'redefine' },
     source: { process: processSource },
@@ -91,7 +92,7 @@ function createFixture(runtime) {
     },
     render: { render: async ({ text }) => '<p>' + text + '</p>' },
     log: { warn() {}, error() {} },
-    call: async name => { calls.push(name); }
+    call: async (name, args) => { calls.push(name);if(runtime&&runtime.hexoCall)await runtime.hexoCall({name,args,hexo,baseDir,sourceDir}); }
   };
 
   const config = { username: 'admin', password: 'secret', jwt_secret: 'test-secret', token_expiry: '2h' };
@@ -157,7 +158,7 @@ async function login(handler) {
 async function waitForCommandJob(handler, token, id) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const response = await request(handler, 'GET', '/commands/jobs/' + id, { headers: authHeaders(token) });
-    if (response.json.data.status === 'completed' || response.json.data.status === 'failed') return response.json.data;
+    if (['completed', 'failed', 'cancelled'].includes(response.json.data.status)) return response.json.data;
     await new Promise(resolve => setImmediate(resolve));
   }
   throw new Error('Command job did not finish');
@@ -732,7 +733,181 @@ test('scheduled publishing persists tasks and publishes due drafts', async t => 
   assert.equal(fs.existsSync(path.join(fixture.postsDir, 'scheduled-story.md')), true);
   assert.equal(fs.existsSync(path.join(fixture.draftsDir, 'scheduled-story.md')), false);
   const after = await request(fixture.handler, 'GET', '/schedules', { headers });
-  assert.equal(after.json.data.total, 0);
+  assert.equal(after.json.data.total, 1);
+  assert.equal(after.json.data.items[0].status, 'completed');
+  assert.ok(after.json.data.items[0].history.some(entry => entry.status === 'completed'));
+});
+
+test('scheduled publishing retries failures and keeps attempt history', async t => {
+  let intervalCallback;
+  let clock = new Date('2026-09-01T08:00:00.000Z');
+  const fixture = createFixture({now:()=>clock,setInterval(callback){intervalCallback=callback;return{unref(){}};}});
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  const created = await request(fixture.handler,'POST','/posts',{headers,body:JSON.stringify({title:'Retry Story',content:'retry me'})});
+  const draftPath = path.join(fixture.draftsDir,'retry-story.md');
+  const raw = fs.readFileSync(draftPath,'utf8');
+  const scheduled = await request(fixture.handler,'POST','/posts/'+created.json.data._id+'/schedule',{headers,body:JSON.stringify({publishAt:'2026-09-01T09:00:00.000Z',revision:created.json.data.revision,maxAttempts:2,retryDelayMinutes:1})});
+  fs.unlinkSync(draftPath);
+  clock = new Date('2026-09-01T09:01:00.000Z');
+  await intervalCallback();
+  let history = await request(fixture.handler,'GET','/schedules',{headers});
+  assert.equal(history.json.data.items[0].status,'retrying');
+  assert.equal(history.json.data.items[0].attempts,1);
+  fs.writeFileSync(draftPath,raw,'utf8');
+  clock = new Date('2026-09-01T09:03:00.000Z');
+  await intervalCallback();
+  history = await request(fixture.handler,'GET','/schedules',{headers});
+  assert.equal(history.json.data.items[0].status,'completed');
+  assert.equal(history.json.data.items[0].attempts,2);
+  assert.ok(history.json.data.items[0].history.some(entry=>entry.status==='retrying'));
+  assert.equal(scheduled.json.data.maxAttempts,2);
+});
+
+test('Hexo scaffolds initialize workflow-aware posts', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const scaffoldDir = path.join(fixture.baseDir, 'scaffolds');
+  fs.mkdirSync(scaffoldDir, { recursive: true });
+  fs.writeFileSync(path.join(scaffoldDir, 'guide.md'), '---\nlayout: post\ntags:\n  - guide\n---\nWelcome {{ title }}\n', 'utf8');
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+
+  const templates = await request(fixture.handler, 'GET', '/scaffolds', { headers });
+  assert.equal(templates.json.data.items[0].name, 'guide');
+  const created = await request(fixture.handler, 'POST', '/posts', {
+    headers, body: JSON.stringify({ title: 'Workflow Story', scaffold: 'guide', workflowStatus: 'review' })
+  });
+  assert.equal(created.statusCode, 200);
+  const raw = fs.readFileSync(path.join(fixture.draftsDir, 'workflow-story.md'), 'utf8');
+  assert.match(raw, /workflow_status: review/);
+  assert.match(raw, /Welcome Workflow Story/);
+  const review = await request(fixture.handler, 'GET', '/posts?status=review', { headers });
+  assert.equal(review.json.data.total, 1);
+  assert.equal(review.json.data.posts[0].workflowStatus, 'review');
+});
+
+test('generic pages cover nested and standalone files plus theme menu ordering', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const scaffoldDir = path.join(fixture.baseDir, 'scaffolds');
+  fs.mkdirSync(scaffoldDir, { recursive: true });
+  fs.writeFileSync(path.join(scaffoldDir, 'page.md'), '---\nlayout: page\n---\nPage body for {{ title }}\n', 'utf8');
+  fs.writeFileSync(path.join(fixture.baseDir, '_config.redefine.yml'), 'navbar:\n  links:\n    Home:\n      path: /\n    About:\n      path: /about\n', 'utf8');
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+
+  const created = await request(fixture.handler, 'POST', '/pages', {
+    headers, body: JSON.stringify({ title: 'Projects', path: 'projects/index.md', scaffold: 'page', layout: 'page' })
+  });
+  assert.equal(created.statusCode, 200);
+  assert.match(fs.readFileSync(path.join(fixture.sourceDir, 'projects', 'index.md'), 'utf8'), /Page body for Projects/);
+  fs.writeFileSync(path.join(fixture.sourceDir, 'links.md'), '---\ntitle: Links\nlayout: page\n---\nlinks\n', 'utf8');
+  const listed = await request(fixture.handler, 'GET', '/pages', { headers });
+  assert.equal(listed.json.data.total, 2);
+  assert.ok(listed.json.data.items.some(item => item.path === 'links.md'));
+
+  const menu = listed.json.data.menu;
+  const reordered = await request(fixture.handler, 'PUT', '/pages/menu', {
+    headers, body: JSON.stringify({ items: menu.items.slice().reverse(), revision: menu.revision })
+  });
+  assert.equal(reordered.statusCode, 200);
+  const savedMenu = yaml.load(fs.readFileSync(path.join(fixture.baseDir, '_config.redefine.yml'), 'utf8')).navbar.links;
+  assert.deepEqual(Object.keys(savedMenu), ['About', 'Home']);
+
+  const detail = await request(fixture.handler, 'GET', '/pages/' + created.json.data.id, { headers });
+  const updated = await request(fixture.handler, 'PUT', '/pages/' + created.json.data.id, {
+    headers, body: JSON.stringify({ title: 'Project index', layout: 'page', content: 'updated', frontMatter: {}, revision: detail.json.data.revision })
+  });
+  assert.equal(updated.statusCode, 200);
+  const removed = await request(fixture.handler, 'DELETE', '/pages/' + created.json.data.id, { headers: { ...headers, 'if-match': updated.json.data.revision } });
+  assert.equal(removed.statusCode, 200);
+  const trash = await request(fixture.handler, 'GET', '/trash?kind=page', { headers });
+  assert.equal(trash.json.data.total, 1);
+});
+
+test('taxonomy center reports usage and applies merge, rename and delete with backups', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  fs.writeFileSync(path.join(fixture.postsDir, 'one.md'), '---\ntitle: One\ncategories: Old\ntags: [legacy, node]\n---\none', 'utf8');
+  fs.writeFileSync(path.join(fixture.draftsDir, 'two.md'), '---\ntitle: Two\ncategories: Old\ntags: [legacy]\n---\ntwo', 'utf8');
+  await fixture.processSource();
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  const initial = await request(fixture.handler, 'GET', '/taxonomies', { headers });
+  assert.equal(initial.json.data.categories.find(item => item.name === 'Old').count, 2);
+  assert.equal(initial.json.data.tags.find(item => item.name === 'legacy').drafts, 1);
+
+  const merged = await request(fixture.handler, 'POST', '/taxonomies/tags/merge', {
+    headers, body: JSON.stringify({ sources: ['legacy', 'node'], target: 'javascript' })
+  });
+  assert.equal(merged.json.data.affectedPosts, 2);
+  assert.equal(fs.existsSync(path.join(fixture.baseDir, '.hexo-admin', 'backups', 'taxonomies', merged.json.data.backupId)), true);
+  const renamed = await request(fixture.handler, 'PUT', '/taxonomies/categories/Old', { headers, body: JSON.stringify({ name: 'Guides' }) });
+  assert.equal(renamed.statusCode, 200);
+  const removed = await request(fixture.handler, 'DELETE', '/taxonomies/tags/javascript', { headers });
+  assert.equal(removed.json.data.affectedPosts, 2);
+  assert.doesNotMatch(fs.readFileSync(path.join(fixture.postsDir, 'one.md'), 'utf8'), /javascript|legacy|node/);
+});
+
+test('command jobs expose progress, cooperative cancellation and retry history', async t => {
+  let releaseGenerate;
+  let deployAttempts = 0;
+  const fixture = createFixture({
+    setInterval() { return { unref() {} }; },
+    async hexoCall({ name }) {
+      if (name === 'generate') await new Promise(resolve => { releaseGenerate = resolve; });
+      if (name === 'deploy' && deployAttempts++ === 0) throw new Error('remote unavailable');
+    }
+  });
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  const started = await request(fixture.handler, 'POST', '/commands/generate', { headers });
+  await new Promise(resolve => setImmediate(resolve));
+  const cancelled = await request(fixture.handler, 'POST', '/commands/jobs/' + started.json.data.job.id + '/cancel', { headers });
+  assert.equal(cancelled.statusCode, 202);
+  releaseGenerate();
+  const finalCancelled = await waitForCommandJob(fixture.handler, token, started.json.data.job.id);
+  assert.equal(finalCancelled.status, 'cancelled');
+
+  const failedStart = await request(fixture.handler, 'POST', '/commands/deploy', { headers });
+  const failed = await waitForCommandJob(fixture.handler, token, failedStart.json.data.job.id);
+  assert.equal(failed.status, 'failed');
+  const retried = await request(fixture.handler, 'POST', '/commands/jobs/' + failed.id + '/retry', { headers });
+  assert.equal(retried.statusCode, 202);
+  const completed = await waitForCommandJob(fixture.handler, token, retried.json.data.job.id);
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.retryOf, failed.id);
+  assert.equal(completed.progress, 100);
+});
+
+test('temporary preview serves a real generated iframe document through an expiring token', async t => {
+  const fixture = createFixture({
+    setInterval() { return { unref() {} }; },
+    async hexoCall({ name, hexo }) {
+      if (name !== 'generate' || !String(hexo.public_dir).includes('.hexo-admin')) return;
+      const output = path.join(hexo.public_dir, 'preview', 'preview-story', 'index.html');
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.writeFileSync(output, '<html><head><title>Preview Story</title></head><body><a href="/archives/">Preview Story</a></body></html>');
+    }
+  });
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const headers = authHeaders(token);
+  const created = await request(fixture.handler, 'POST', '/posts', { headers, body: JSON.stringify({ title: 'Preview Story', content: 'body' }) });
+  const started = await request(fixture.handler, 'POST', '/previews', { headers, body: JSON.stringify({ kind: 'post', id: created.json.data._id, revision: created.json.data.revision }) });
+  assert.equal(started.statusCode, 202);
+  const job = await waitForCommandJob(fixture.handler, token, started.json.data.job.id);
+  assert.equal(job.status, 'completed');
+  assert.match(job.result.permalink, /preview\/preview-story/);
+  const route = new URL(job.result.previewUrl, 'http://local').pathname.replace(/^\/admin\/api/, '');
+  const page = await request(fixture.handler, 'GET', route);
+  assert.equal(page.statusCode, 200);
+  assert.equal(page.headers['X-Frame-Options'], 'SAMEORIGIN');
+  assert.match(page.text, /<base href="\/admin\/api\/previews\//);
+  assert.match(page.text, /href="\/admin\/api\/previews\/.+\/archives\//);
 });
 
 test('render, taxonomy, theme and command endpoints respond successfully', async t => {
@@ -756,6 +931,16 @@ test('render, taxonomy, theme and command endpoints respond successfully', async
   const themes = await request(fixture.handler, 'GET', '/themes', { headers });
   assert.equal(themes.json.data.active, 'redefine');
   assert.ok(themes.json.data.themes.some(theme => theme.name === 'redefine'));
+
+  const about = await request(fixture.handler, 'GET', '/system/about', { headers });
+  assert.equal(about.json.data.name, 'hexo-admin-panel');
+  assert.equal(about.json.data.license, 'MIT');
+  assert.equal(about.json.data.runtime.theme, 'redefine');
+  assert.match(about.json.data.links.repository, /github\.com\/Skylarrkuo\/hexo-admin-panel/);
+  assert.match(about.json.data.links.npm, /npmjs\.com\/package\/hexo-admin-panel/);
+  assert.ok(about.json.data.attributions.some(item => item.name === 'Vue' && item.license === 'MIT'));
+  assert.ok(about.json.data.attributions.every(item => item.version && item.copyright && item.licenseUrl && item.url));
+  assert.equal(about.json.data.attributions.find(item => item.name === 'DOMPurify').copyright, 'Copyright (c) Cure53 and other contributors');
 
   for (const command of ['generate', 'deploy', 'clean']) {
     const response = await request(fixture.handler, 'POST', '/commands/' + command, { headers });
