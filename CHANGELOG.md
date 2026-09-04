@@ -4,7 +4,10 @@
 
 ## Unreleased
 
-当前暂无未发布变更。
+### 测试与持续集成
+
+- 修复路径安全测试硬编码 Windows 路径、导致 GitHub Actions 的 Ubuntu runner 误报失败的问题；测试现在使用当前操作系统的原生路径规则。
+- 将 `actions/checkout` 与 `actions/setup-node` 升级到使用新运行时的 v7，消除 GitHub Actions 自身 Node.js 20 运行时弃用警告；项目仍按声明测试 Node.js 20 与 22。
 
 ## 3.3.0 - 2026-09-04
 

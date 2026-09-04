@@ -35,8 +35,10 @@ test('YAML codec preserves structured value types and merges nested values', () 
 });
 
 test('path helpers reject traversal and router patterns expose named parameters', () => {
-  assert.equal(isPathInside('C:\\workspace\\media', 'C:\\workspace\\media\\image.png'), true);
-  assert.throws(() => resolveInside('C:\\workspace\\media', '..\\secret.txt'));
+  const mediaRoot = path.join(path.parse(process.cwd()).root, 'workspace', 'media');
+  assert.equal(isPathInside(mediaRoot, path.join(mediaRoot, 'image.png')), true);
+  assert.equal(isPathInside(mediaRoot, path.resolve(mediaRoot, '..', 'secret.txt')), false);
+  assert.throws(() => resolveInside(mediaRoot, path.join('..', 'secret.txt')));
   assert.throws(() => safeFilename('../secret.txt'));
   assert.equal(safeRelativePath('album/封面.png'), 'album/封面.png');
   assert.throws(() => safeRelativePath('../secret.txt'));
