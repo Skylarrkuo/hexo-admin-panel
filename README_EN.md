@@ -57,11 +57,20 @@ Vue admin interface in the browser
             └─ .hexo-admin/     Private state, backups, jobs, and logs
 ```
 
+## What’s new in 3.5.1
+
+- **Edit essays in place**: the editor opens inside the selected card with a live preview. Saving updates the list without sending you back to the top.
+- **More readable posts**: larger titles and buttons, grouped categories and tags, and clear “Edit” and “More” actions. Narrow screens use a card layout.
+- **Roomier media and recovery views**: see complete image previews, expand reference details, and review restore differences beneath the selected backup, with space for long paths and controls.
+- **Smoother session refresh**: existing sessions are checked before opening the current page, avoiding a flash of the login form. Selection controls, date inputs, and menu motion support light, dark, and narrow layouts.
+
+See [Versions and releases](#versions-and-releases) for upgrade steps and [CHANGELOG.md](./CHANGELOG.md) for the full history.
+
 ## Features
 
 ### Content authoring
 
-- Create, edit, publish, unpublish, and trash posts, with full-text search and bulk operations.
+- Create, edit, publish, unpublish, and trash posts, with full-text search and bulk operations. Dates and word counts appear beneath titles; the “More” menu holds publishing, scheduling, and deletion actions.
 - Create content from the site's existing `scaffolds/*.md` templates.
 - Use draft, in progress, in review, scheduled, and published workflow states.
 - Edit Front Matter without losing the original types of strings, numbers, booleans, null values, arrays, or objects.
@@ -74,12 +83,12 @@ Vue admin interface in the browser
 - Choose a Hexo scaffold, page layout, and source path when creating a page.
 - Detect common `navbar.links` or `menu` theme structures and reorder navigation entries.
 - View taxonomy usage and merge, rename, or delete categories and tags.
-- Manage Redefine theme settings and `source/_data/essays.yml` entries, including selected-entry batch editing, paste-to-split bulk creation, shared dates and Markdown previews. Up to 100 entries are validated and saved atomically per batch.
+- Manage Redefine theme settings and `source/_data/essays.yml` entries with an inline editor and live preview, including selected-entry batch editing, paste-to-split bulk creation, shared dates and Markdown previews. Up to 100 entries are validated and saved atomically per batch.
 - Protect site configuration, theme configuration, posts, pages, and essays with revision-aware writes.
 
 ### Media library
 
-- Recursively manage `source/images` and its subdirectories, using complete relative paths to distinguish duplicate filenames.
+- Recursively manage `source/images` and its subdirectories, using complete relative paths to distinguish duplicate filenames. Cards show complete image previews with separate file details, reference information, and actions.
 - Search the entire library server-side and scan static references in source Markdown, YAML, JSON, HTML and CSS, plus root `_config*.yml` / `.yaml` files. External sites with matching image paths are excluded.
 - Filter assets with no references in the documented scan scope, preview affected files before renaming, and update detected references with backups and rollback. Dynamic references and theme/plugin source code are outside the scan scope.
 - Optimize JPEG, PNG, and WebP images; replace the original only when the result is smaller and retain a backup.
@@ -180,6 +189,14 @@ Revocations are persisted in `.hexo-admin/revoked-sessions.json` and survive res
 
 ## Core workflows
 
+### Browse and manage posts
+
+Search titles or content in Posts and filter by workflow state. Select a title or “Edit” to open the editor. Use “More” to publish, unpublish, schedule, cancel a schedule, or delete a post. Press Esc or click outside to close the menu. Selecting posts shows bulk actions above the list.
+
+### Edit an essay in place
+
+Find an entry in Essays and select “Edit” to change its date and content inside the same card, review the preview, and choose “Save essay.” To change several entries together, select them and use the batch editor. Use “Write an essay” or “Batch add” for new entries.
+
 ### Create content from a template
 
 Choose a template from the site's `scaffolds/` directory, then select a workflow state. Draft, in-progress, and in-review content is stored under `source/_drafts`. Content published immediately is stored under `source/_posts`. Scheduled content also creates a persistent publishing task.
@@ -199,6 +216,8 @@ After saving a post or page, select “Real theme preview.” The plugin generat
 The publishing center combines scheduled posts with Hexo command jobs. Scheduled publishing depends on the Hexo process remaining active. If the service stops temporarily, overdue work resumes during the next check after startup. A task tries up to 3 times by default with a 5-minute delay, and both values can be customized when it is created.
 
 ### Recover from mistakes
+
+Open Recovery, filter by file name or backup type, and select “Preview restore diff.” Compare the current file with the backup directly below that record, then choose “Restore this file.” The current file is backed up before restoring.
 
 Deleting a post, page, or media asset moves it to `.hexo-admin/trash/` by default. Configuration, essays, menus, taxonomies, and media compression create backups before modifying data. Permanent deletion remains an explicit action in the trash interface.
 
@@ -406,7 +425,15 @@ For security issues involving credentials, path boundaries, arbitrary file write
 
 ## Versions and releases
 
-The current version is `3.5.0`. The project follows Semantic Versioning; see [CHANGELOG.md](./CHANGELOG.md) for details.
+The current version is `3.5.1`. The project follows Semantic Versioning; see [CHANGELOG.md](./CHANGELOG.md) for details.
+
+Upgrade from your Hexo site root:
+
+```bash
+npm install hexo-admin-panel@3.5.1
+```
+
+Restart Hexo after installation, then refresh `/admin`. Version 3.5.1 requires no configuration changes or migration of posts, essays, or media. Keep the existing `.hexo-admin/` directory to retain authentication state, history, and backups. Node.js 20 or newer is still required.
 
 README: [简体中文](./README.md) · <strong>English</strong>
 

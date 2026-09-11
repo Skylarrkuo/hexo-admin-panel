@@ -14,6 +14,7 @@
     <template v-else-if="name==='logout'"><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/></template>
     <template v-else-if="name==='external'"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6H5V6h6"/></template>
     <template v-else-if="name==='plus'"><path d="M12 5v14M5 12h14"/></template>
+    <template v-else-if="name==='chevron-down'"><path d="m6 9 6 6 6-6"/></template>
     <template v-else-if="name==='moon'"><path d="M20.4 15.1A8.3 8.3 0 0 1 8.9 3.6 8.7 8.7 0 1 0 20.4 15.1Z"/></template>
     <template v-else-if="name==='sun'"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></template>
     <template v-else-if="name==='search'"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></template>

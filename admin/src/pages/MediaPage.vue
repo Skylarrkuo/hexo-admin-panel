@@ -1,29 +1,32 @@
 <template>
-  <section>
-    <div class="section-heading"><div><h2>{{ tr('资源库','Media library') }}</h2><p>{{ tr('集中管理文章中使用的图片与附件。','Manage images and attachments used by your posts.') }}</p></div><span class="text-sm text-muted">{{ tr('当前显示 {count} 个文件','Showing {count} files',{count:files.length}) }}</span></div>
-    <div class="toolbar">
-      <div class="search-box"><input :value="search" :placeholder="tr('搜索全部文件...','Search all files...')" @input="$emit('update:search',$event.target.value);$emit('search')"></div>
-      <div class="filter-tabs"><button v-for="item in usageOptions" :key="item.value" :class="{active:usage===item.value}" @click="$emit('update:usage',item.value);$emit('update:page',1);$emit('reload')">{{ item.label }}</button></div>
-      <div><input ref="fileInput" type="file" style="display:none" multiple @change="$emit('upload',$event)"><button class="btn btn-primary" @click="fileInput.click()">＋ {{ tr('上传文件','Upload files') }}</button></div>
+  <section class="management-page media-page">
+    <div class="section-heading"><div><h2>{{ tr('资源库','Media library') }}</h2><p>{{ tr('集中管理文章中使用的图片与附件。','Manage images and attachments used by your posts.') }}</p></div><span class="management-badge">{{ tr('当前显示 {count} 个文件','Showing {count} files',{count:files.length}) }}</span></div>
+    <div class="toolbar management-toolbar">
+      <div class="search-box"><input :value="search" type="search" :aria-label="tr('搜索全部文件','Search all files')" :placeholder="tr('搜索全部文件…','Search all files…')" @input="$emit('update:search',$event.target.value);$emit('search')"></div>
+      <div class="filter-tabs" role="group" :aria-label="tr('按引用状态筛选','Filter by usage')"><button v-for="item in usageOptions" :key="item.value" :class="{active:usage===item.value}" :aria-pressed="usage===item.value" @click="$emit('update:usage',item.value);$emit('update:page',1);$emit('reload')">{{ item.label }}</button></div>
+      <div class="media-upload"><input ref="fileInput" type="file" hidden multiple @change="$emit('upload',$event)"><button class="btn btn-primary" @click="fileInput.click()"><AppIcon name="plus"/>{{ tr('上传文件','Upload files') }}</button></div>
     </div>
-    <p class="text-sm text-muted">{{ tr('引用扫描覆盖 source 中的 Markdown、YAML、JSON、HTML、CSS，以及站点根目录的 _config*.yml / .yaml。主题源码、插件和动态生成的引用不在扫描范围内；未检测到引用不代表可以安全删除。','Reference scanning covers Markdown, YAML, JSON, HTML and CSS in source, plus root _config*.yml / .yaml files. Theme code, plugins and dynamic references are not scanned; no matches do not guarantee safe deletion.') }}</p>
-    <div v-if="loading" class="loading">{{ tr('加载中...','Loading...') }}</div>
+    <details class="management-help"><summary>{{ tr('引用扫描范围与说明','About reference scanning') }}</summary><p>{{ tr('引用扫描覆盖 source 中的 Markdown、YAML、JSON、HTML、CSS，以及站点根目录的 _config*.yml / .yaml。主题源码、插件和动态生成的引用不在扫描范围内；未检测到引用不代表可以安全删除。','Reference scanning covers Markdown, YAML, JSON, HTML and CSS in source, plus root _config*.yml / .yaml files. Theme code, plugins and dynamic references are not scanned; no matches do not guarantee safe deletion.') }}</p></details>
+    <div v-if="loading" class="loading" role="status">{{ tr('加载中…','Loading…') }}</div>
     <div v-else>
-      <div v-if="files.length===0" class="empty card">{{ tr('暂无媒体文件','No media files') }}</div>
-      <div v-else class="media-grid"><div v-for="file in files" :key="file.name" class="media-item">
-        <img v-if="isImage(file.name)" :src="assetUrl(file.path)" :alt="file.name" loading="lazy">
-        <div v-else class="media-file-placeholder">&#128196;</div>
-        <template v-if="renaming===file.name"><div class="media-rename"><input ref="renameInput" v-model.trim="renameValue" :aria-label="tr('新文件名','New file name')" @keyup.enter="commitRename(file)" @keyup.esc="cancelRename"><div class="btn-group"><button class="btn btn-primary btn-sm" :disabled="!renameValue" @click="commitRename(file)">{{ tr('保存','Save') }}</button><button class="btn btn-outline btn-sm" @click="cancelRename">{{ tr('取消','Cancel') }}</button></div></div></template>
-        <template v-else><div class="info" :title="file.name">{{ file.name }}</div><div class="info text-muted">{{ formatSize(file.size) }} · <span :title="referenceTitle(file)">{{ file.used?tr('{count} 处引用','{count} references',{count:file.referenceCount}):tr('扫描范围内无引用','No scanned references') }}</span></div>
-        <details v-if="file.references?.length" class="text-sm"><summary>{{tr('查看反向引用','Show references')}}</summary><div v-for="reference in file.references" :key="reference.source"><code>{{reference.source}}</code> × {{reference.count}}</div></details><div class="actions"><button class="btn btn-outline btn-sm" @click="$emit('copy',file)">{{ tr('复制链接','Copy link') }}</button><button v-if="compressible(file.name)" class="btn btn-outline btn-sm" :disabled="compressing===file.name" @click="$emit('compress',file)">{{compressing===file.name?tr('压缩中','Compressing'):tr('压缩','Compress')}}</button><button class="btn btn-outline btn-sm" @click="startRename(file)">{{ tr('重命名','Rename') }}</button><button class="btn btn-danger btn-sm" @click="$emit('remove',file)">{{ tr('删除','Delete') }}</button></div></template>
-      </div></div>
-      <div v-if="totalPages>1" class="pagination"><button :disabled="page<=1" @click="changePage(page-1)">&lt;</button><span class="info">{{ tr('第 {page} 页 / 共 {total} 页','Page {page} of {total}',{page,total:totalPages}) }}</span><button :disabled="page>=totalPages" @click="changePage(page+1)">&gt;</button></div>
+      <div v-if="files.length===0" class="empty card"><AppIcon name="media"/><h3>{{ tr('暂无媒体文件','No media files') }}</h3><p>{{ tr('上传图片或附件，或调整筛选条件。','Upload images or attachments, or adjust your filters.') }}</p></div>
+      <div v-else class="media-grid"><article v-for="file in files" :key="file.name" class="media-item">
+        <div class="media-preview"><img v-if="isImage(file.name)" :src="assetUrl(file.path)" :alt="file.name" loading="lazy"><div v-else class="media-file-placeholder"><AppIcon name="posts"/><span>{{ tr('附件','Attachment') }}</span></div><span class="media-extension">{{ file.name.split('.').length>1?file.name.split('.').at(-1).toUpperCase():tr('文件','FILE') }}</span></div>
+        <div v-if="renaming===file.name" class="media-rename"><label :for="'rename-'+file.name">{{ tr('新文件名','New file name') }}</label><input :id="'rename-'+file.name" ref="renameInput" v-model.trim="renameValue" :aria-label="tr('新文件名','New file name')" @keyup.enter="commitRename(file)" @keyup.esc="cancelRename"><div class="btn-group"><button class="btn btn-primary btn-sm" :disabled="!renameValue" @click="commitRename(file)">{{ tr('保存','Save') }}</button><button class="btn btn-outline btn-sm" @click="cancelRename">{{ tr('取消','Cancel') }}</button></div></div>
+        <template v-else>
+          <div class="media-details"><h3 class="media-name" :title="file.name">{{ file.name }}</h3><div class="media-facts"><span>{{ formatSize(file.size) }}</span><span class="media-usage" :class="{'is-used':file.used}" :title="referenceTitle(file)">{{ file.used?tr('{count} 处引用','{count} references',{count:file.referenceCount}):tr('扫描范围内无引用','No scanned references') }}</span></div>
+          <details v-if="file.references?.length" class="media-references"><summary>{{tr('查看反向引用','Show references')}}</summary><div v-for="reference in file.references" :key="reference.source"><code>{{reference.source}}</code><span>× {{reference.count}}</span></div></details></div>
+          <div class="actions"><button class="btn btn-outline btn-sm" @click="$emit('copy',file)">{{ tr('复制链接','Copy link') }}</button><button v-if="compressible(file.name)" class="btn btn-outline btn-sm" :disabled="compressing===file.name" @click="$emit('compress',file)">{{compressing===file.name?tr('压缩中','Compressing'):tr('压缩','Compress')}}</button><button class="btn btn-outline btn-sm" @click="startRename(file)">{{ tr('重命名','Rename') }}</button><button class="btn btn-danger btn-sm" @click="$emit('remove',file)">{{ tr('删除','Delete') }}</button></div>
+        </template>
+      </article></div>
+      <div v-if="totalPages>1" class="pagination"><button :disabled="page<=1" :aria-label="tr('上一页','Previous page')" @click="changePage(page-1)">←</button><span class="info">{{ tr('第 {page} 页 / 共 {total} 页','Page {page} of {total}',{page,total:totalPages}) }}</span><button :disabled="page>=totalPages" :aria-label="tr('下一页','Next page')" @click="changePage(page+1)">→</button></div>
     </div>
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, ref } from 'vue';
+import AppIcon from '../components/AppIcon.vue';
 import { assetUrl } from '../api/client';
 import { useI18n } from '../i18n';
 const {tr}=useI18n();

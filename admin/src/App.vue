@@ -1,7 +1,7 @@
 <template>
   <ToastStack :items="toasts" />
   <ConfirmDialog :dialog="confirmDialog" @cancel="confirmDialog.show=false" @confirm="runConfirmation" />
-  <div v-if="!authenticated||mustChangePassword" class="auth-utility-bar">
+  <div v-if="authChecking||!authenticated||mustChangePassword" class="auth-utility-bar">
     <button class="language-toggle" :aria-label="tr('切换为英文','Switch to Chinese')" @click="toggleLocale"><span :class="{active:locale==='zh-CN'}">中文</span><span :class="{active:locale==='en'}">EN</span></button>
     <button class="auth-theme-toggle" :aria-label="colorMode==='dark'?tr('切换亮色模式','Switch to light mode'):tr('切换暗色模式','Switch to dark mode')" @click="toggleColorMode"><AppIcon :name="colorMode==='dark'?'sun':'moon'"/></button>
   </div>
@@ -9,7 +9,8 @@
     <button class="language-toggle" :aria-label="tr('切换为英文','Switch to Chinese')" @click="toggleLocale"><span :class="{active:locale==='zh-CN'}">中</span><span :class="{active:locale==='en'}">EN</span></button>
     <button class="mobile-theme-toggle" :aria-label="colorMode==='dark'?tr('切换亮色模式','Switch to light mode'):tr('切换暗色模式','Switch to dark mode')" @click="toggleColorMode"><AppIcon :name="colorMode==='dark'?'sun':'moon'"/></button>
   </div>
-  <PasswordChangePage v-if="mustChangePassword" :form="passwordForm" :loading="passwordLoading" @submit="changePassword" />
+  <div v-if="authChecking" class="auth-pending" role="status" aria-live="polite" aria-busy="true"><div class="loading">{{ tr('正在验证登录状态…','Checking your session…') }}</div></div>
+  <PasswordChangePage v-else-if="mustChangePassword" :form="passwordForm" :loading="passwordLoading" @submit="changePassword" />
   <LoginPage v-else-if="!authenticated" :form="loginForm" :loading="loginLoading" @submit="login" />
   <div v-else class="app">
     <AdminHeader :route="route" :color-mode="colorMode" @navigate="go" @logout="logout()" @logout-all="logout(true)" @toggle-theme="toggleColorMode" />
@@ -75,8 +76,8 @@ const {locale,tr,toggleLocale,errorMessage}=useI18n();
 const preferredMode=localStorage.getItem('hexo_admin_color_mode')||(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 const colorMode=ref(preferredMode);
 document.documentElement.dataset.theme=colorMode.value;
-const route=ref('/dashboard');
-const authenticated=ref(false);const mustChangePassword=ref(false);
+const route=ref(location.hash.slice(1)||'/dashboard');
+const authChecking=ref(!!api.token);const authenticated=ref(false);const mustChangePassword=ref(false);
 const loginForm=reactive({username:'',password:''});const loginLoading=ref(false);
 const passwordForm=reactive({currentPassword:'',newPassword:'',confirmPassword:''});const passwordLoading=ref(false);
 const confirmDialog=reactive({show:false,title:'',message:'',onOk:null});
@@ -112,7 +113,7 @@ function confirmEditorLeave(){return !editorDirty.value||window.confirm(tr('编�
 function go(path){if(path===route.value)return;if(!confirmEditorLeave())return;editorDirty.value=false;location.hash='#'+path;}
 function confirmAction(title,message,onOk,details=[]){Object.assign(confirmDialog,{show:true,title,message,onOk,details});}
 function runConfirmation(){const action=confirmDialog.onOk;confirmDialog.show=false;confirmDialog.onOk=null;if(action)action();}
-async function verify(){if(!api.token)return;try{const data=await api.get('/auth/verify');authenticated.value=true;mustChangePassword.value=data.mustChangePassword===true;}catch(_){authenticated.value=false;}}
+async function verify(){try{if(!api.token)return;const data=await api.get('/auth/verify');authenticated.value=true;mustChangePassword.value=data.mustChangePassword===true;}catch(_){authenticated.value=false;}finally{authChecking.value=false;}}
 async function login(){if(!loginForm.username||!loginForm.password){toast(tr('请输入用户名和密码','Enter your username and password'),'error');return;}loginLoading.value=true;try{const data=await api.post('/auth/login',{username:loginForm.username,password:loginForm.password});api.token=data.token;localStorage.setItem('hexo_admin_token',data.token);authenticated.value=true;mustChangePassword.value=data.mustChangePassword===true;if(mustChangePassword.value){passwordForm.currentPassword=loginForm.password;toast(tr('首次登录，请设置新密码','Set a new password for your first sign-in'),'info');}else{toast(tr('登录成功','Signed in'),'success');handleRoute();}}catch(error){toast(errorMessage(error),'error');}finally{loginLoading.value=false;}}
 async function changePassword(){if(passwordForm.newPassword!==passwordForm.confirmPassword){toast(tr('两次输入的新密码不一致','The new passwords do not match'),'error');return;}passwordLoading.value=true;try{const data=await api.post('/auth/change-password',{currentPassword:passwordForm.currentPassword,newPassword:passwordForm.newPassword});api.token=data.token;localStorage.setItem('hexo_admin_token',data.token);mustChangePassword.value=false;Object.assign(passwordForm,{currentPassword:'',newPassword:'',confirmPassword:''});toast(tr('密码已更新','Password updated'),'success');handleRoute();}catch(error){toast(errorMessage(error),'error');}finally{passwordLoading.value=false;}}
 async function logout(all=false){

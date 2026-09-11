@@ -93,7 +93,7 @@ const fallbackAttributions=[
   {name:'DOMPurify',version:'3.4.14',scope:'bundled',purposeZh:'清理 Markdown 渲染产生的 HTML',purposeEn:'Sanitize HTML produced by Markdown rendering',copyright:'Copyright (c) Cure53 and other contributors',license:'Apache-2.0 OR MPL-2.0',licenseUrl:'https://github.com/cure53/DOMPurify/blob/main/LICENSE',url:'https://github.com/cure53/DOMPurify'}
 ];
 const info=ref({
-  version:'3.5.0',license:'MIT',copyright:'Copyright (c) 2026 Skylarr Kuo',
+  version:'3.5.1',license:'MIT',copyright:'Copyright (c) 2026 Skylarr Kuo',
   runtime:{node:'',hexo:'',theme:''},
   links:{
     repository:'https://github.com/Skylarrkuo/hexo-admin-panel',
