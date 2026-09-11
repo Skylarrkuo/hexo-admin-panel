@@ -1357,10 +1357,15 @@ test('real Hexo renders native assets and verifies a release, and rejects an abs
     }
     throw new Error('Native Hexo release timed out');
   };
+  // File naming uses the site date, while final routes belong to Hexo's permalink filter.
+  // Hexo 8's date-based permalinks can differ with the process timezone.
+  const nativePath=hexo.model('Post').findById(created.json.data._id).path;
+  const htmlPath=path.posix.join(nativePath,'index.html');
+  const imagePath=path.posix.join(nativePath,'picture.png');
   const job=await publish();assert.equal(job.status,'completed',JSON.stringify(job));assert.equal(job.result.verified,true);assert.equal(deployments,1);
-  assert.equal(job.result.outputs.length,1);assert.ok(fetched.includes('/blog/2026/01/02/native/index.html'));
-  const html=fs.readFileSync(path.join(hexo.public_dir,'2026/01/02/native/index.html'),'utf8');assert.match(html,/src="\/blog\/2026\/01\/02\/native\/picture.png"/);
-  assert.ok(fs.existsSync(path.join(hexo.public_dir,'2026/01/02/native/picture.png')));
+  assert.equal(job.result.outputs.length,1);assert.ok(fetched.includes('/blog/'+htmlPath),JSON.stringify(fetched));
+  const html=fs.readFileSync(path.join(hexo.public_dir,htmlPath),'utf8');assert.ok(html.includes('src="/blog/'+imagePath+'"'),html);
+  assert.ok(fs.existsSync(path.join(hexo.public_dir,imagePath)));
   hexo.config.deploy={type:'missing-plugin'};
   const failed=await publish();assert.equal(failed.status,'failed');assert.equal(failed.errorCode,'RELEASE_DEPLOYER_INVALID');assert.equal(failed.result.steps.at(-1).name,'部署');assert.equal(deployments,1);
 });
