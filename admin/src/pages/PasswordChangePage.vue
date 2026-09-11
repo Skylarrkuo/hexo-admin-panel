@@ -2,7 +2,7 @@
   <div class="login-wrap">
     <div class="login-box">
       <h2>{{ tr('设置新管理员密码','Set a new admin password') }}</h2>
-      <p class="text-sm text-muted mb-16">{{ tr('默认账号仅可使用一次。修改成功后才能进入后台。','The default account can only be used once. Set a new password to continue.') }}</p>
+      <p class="text-sm text-muted mb-16">{{ tr('初始化凭据仅用于设置正式密码。修改成功后才能进入后台。','Initialization credentials are only for setting your permanent password. Set a new password to continue.') }}</p>
       <form @submit.prevent="$emit('submit')">
         <div class="form-group">
           <label for="current-password">{{ tr('当前密码','Current password') }}</label>

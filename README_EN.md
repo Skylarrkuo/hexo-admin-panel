@@ -80,14 +80,14 @@ Vue admin interface in the browser
 ### Media library
 
 - Recursively manage `source/images` and its subdirectories, using complete relative paths to distinguish duplicate filenames.
-- Search the entire library server-side and analyze path-level references in Markdown, YAML, JSON, HTML, and CSS.
-- Filter unused assets, rename them safely, or move them to trash.
+- Search the entire library server-side and scan static references in source Markdown, YAML, JSON, HTML and CSS, plus root `_config*.yml` / `.yaml` files. External sites with matching image paths are excluded.
+- Filter assets with no references in the documented scan scope, preview affected files before renaming, and update detected references with backups and rollback. Dynamic references and theme/plugin source code are outside the scan scope.
 - Optimize JPEG, PNG, and WebP images; replace the original only when the result is smaller and retain a backup.
 - Validate upload count, request size, extension, MIME type, and file signature. SVG uploads are always rejected.
 
 ### Real previews and publishing center
 
-- Build posts and standalone pages with Hexo, then display the real theme, plugins, and permalink in a same-origin iframe.
+- Build posts and standalone pages with Hexo, then display the real theme, plugins, and permalink in a sandbox iframe. A response-level sandbox also isolates directly opened previews from administrator storage and pages.
 - Protect previews with random tokens that expire after 30 minutes by default; temporary directories are cleared on restart.
 - Display scheduled publishing tasks in a calendar and retain completed, failed, and cancelled history.
 - Support automatic failure retries, manual retries, and configurable retry counts and intervals.
@@ -98,7 +98,10 @@ Vue admin interface in the browser
 
 - Require a password change on first login; migrate existing plaintext credentials to a PBKDF2 hash and rotate the JWT secret.
 - Apply CSP, clickjacking protection, MIME sniffing protection, Referrer Policy, and Permissions Policy to the admin interface and API.
-- Enforce login rate limits, token expiry, strict path boundaries, and centralized input validation.
+- Rate-limit login attempts by socket address with expiry cleanup and a 1024-entry cap. Active lockouts are never evicted to admit new sources.
+- Run PBKDF2 asynchronously with a process-wide limit of 2 active and 8 queued computations; excess requests receive `429 AUTH_BUSY`.
+- Revoke the current token on sign-out, or persistently rotate the signing key using “Sign out of all sessions” in the sidebar. Failed revocation leaves the UI signed in with a retry message.
+- Check both lexical and real filesystem paths, rejecting external symlinks and Windows junctions including missing destinations beneath them, while permitting links inside the site.
 - Refresh the Hexo source only once after an entire bulk publish, unpublish, or trash operation completes.
 - Provide Chinese and English interfaces, light and dark modes, and responsive desktop and mobile layouts.
 - Surface task state and raw Hexo output in both the dashboard and publishing center.
@@ -136,7 +139,7 @@ admin:
 
 On first startup, the plugin converts the password to a PBKDF2 hash, generates a random JWT secret, and saves both in `.hexo-admin/state.yml`. It then removes `password`, `password_hash`, and `jwt_secret` from `_admin-config.yml` automatically.
 
-If no administrator configuration is provided, the plugin temporarily enables the one-time `admin/admin` account and requires a new password of at least 12 characters immediately after login.
+When no password is configured, the terminal running Hexo displays random one-time initialization credentials (default username `admin`, password generated from 24 random bytes). The temporary password is never written to configuration or state files and is regenerated on restart. Set a permanent password of at least 12 characters after login; doing so invalidates the bootstrap credentials and earlier tokens. Uninitialized legacy `admin/admin` configurations also use random credentials.
 
 ### 3. Start Hexo and sign in
 
@@ -157,6 +160,8 @@ _admin-config.yml
 
 `.hexo-admin/` contains credential state, trashed content, configuration backups, task records, and deployment logs. It must not be committed to a public repository or included in the generated site.
 
+Revocations are persisted in `.hexo-admin/revoked-sessions.json` and survive restart. At most 1024 unexpired revocations are retained; reaching the cap rotates the signing key instead of dropping valid revocations. Use `POST /admin/api/auth/logout` or `POST /admin/api/auth/logout-all` with the current Bearer token. Rate limiting uses socket addresses rather than untrusted forwarded headers.
+
 ## Core workflows
 
 ### Create content from a template
@@ -167,9 +172,11 @@ Choose a template from the site's `scaffolds/` directory, then select a workflow
 
 Form mode is convenient for common fields, while full source mode preserves custom Front Matter. Unknown fields remain intact, and scalar or structured values are not silently coerced after a form round trip. Each save includes the current revision; if another window or external process changes the source file, the stale request returns `409`.
 
+If a post/page write succeeds but the Hexo source refresh fails, the API returns success and the committed revision with `saved: true`, `refreshed: false`, and `warning.code: SOURCE_REFRESH_FAILED`. The UI reports that the content is on disk; check the server logs and rebuild after fixing the error instead of resubmitting the content.
+
 ### Validate the real theme
 
-After saving a post or page, select “Real theme preview.” The plugin generates the target page with the active Hexo configuration, theme, and plugins, then displays the final result in an iframe. Because this invokes the actual Hexo build, theme and third-party plugin build code should be treated as trusted code.
+After saving a post or page, select “Real theme preview.” The plugin generates the target page with the active Hexo configuration, theme, and plugins, then displays the final result in an iframe. Because this invokes the actual Hexo build, theme and third-party plugin build code should be treated as trusted code. Browser previews run in a response-level sandbox without `allow-same-origin`: scripts can run, but storage access, form submissions, popups and top navigation are restricted. Theme features that require those capabilities are limited in previews.
 
 ### Schedule and track publishing
 
@@ -215,7 +222,7 @@ admin:
 | Setting | Default | Description |
 | --- | --- | --- |
 | `admin.username` | `admin` | Administrator username |
-| `admin.password` | `admin` | Bootstrap only; the default credential must be changed after login |
+| `admin.password` | Random when unset | Configured passwords are migrated on first setup; random initialization credentials require a password change |
 | `admin.jwt_secret` | Migrated or generated | Optional; a supplied value must contain at least 32 characters and private state takes ownership after initialization |
 | `admin.token_expiry` | `24h` | Login token lifetime, such as `30m`, `24h`, or `7d` |
 | `admin.security.login_max_attempts` | `5` | Failed login attempts allowed within the tracking window |
@@ -301,6 +308,10 @@ Common resources:
 | Real build previews | `/admin/api/previews` |
 | Command jobs and logs | `/admin/api/commands/jobs` |
 
+For media renames, call `POST /admin/api/media/:filename/rename-preview` with `{name}` to review affected files and obtain a `revision`, then confirm with `PUT /admin/api/media/:filename/rename` and `{name, revision}`. A preview revision is required when references are detected; changed media or scan inputs return `409 MEDIA_RENAME_CONFLICT`. The original media and referencing files are backed up under `.hexo-admin/backups/media/rename-*/`, with paths and rollback status in `manifest.json`. Configuration reference updates require restarting Hexo.
+
+“No scanned references” only covers the documented static scan scope, not theme/plugin code or dynamically generated references. The calendar and task details use Hexo `timezone`, falling back to the server timezone when unset and UTC when invalid. Only terminal schedule history is trimmed to 200 entries; pending, retrying and running tasks are retained.
+
 ## Local development
 
 Clone the repository and install the locked dependencies:
@@ -323,6 +334,7 @@ npm run check
 | `npm run build` | Build production admin assets |
 | `npm run test:node` | Run backend and structure tests |
 | `npm run test:ui` | Run Vue component tests |
+| `npm run test:browser` | Verify sandbox isolation using local Chrome/Chromium/Edge; supports `CHROME_BIN`, skips when no browser is found |
 | `npm test` | Run all tests |
 | `npm run lint` | Lint Node, Vue, and test sources |
 | `npm run coverage` | Generate Node and frontend coverage reports |

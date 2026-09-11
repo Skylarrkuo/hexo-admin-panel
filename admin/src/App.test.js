@@ -186,7 +186,7 @@ describe('admin application', () => {
     const file={name:'cover.png',path:'/images/cover.png',size:2048,used:true,referenceCount:2,references:[{source:'_posts/demo.md',count:2}]};
     const wrapper=mount(MediaPage,{props:{files:[file],loading:false,search:'',usage:'all',compressing:'',page:1,totalPages:1}});
     expect(wrapper.text()).toContain('2 处引用');
-    const unusedButton=wrapper.findAll('.filter-tabs button').find(button=>button.text()==='未使用');
+    const unusedButton=wrapper.findAll('.filter-tabs button').find(button=>button.text()==='扫描范围内无引用');
     await unusedButton.trigger('click');
     expect(wrapper.emitted('update:usage')[0]).toEqual(['unused']);
     const compressButton=wrapper.findAll('button').find(button=>button.text()==='压缩');

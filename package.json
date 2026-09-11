@@ -9,6 +9,7 @@
     "test": "npm run test:node && npm run test:ui",
     "test:node": "node --test test/api.test.js test/frontend-structure.test.js test/unit/pure-functions.test.js",
     "test:ui": "vitest run --config admin/vite.config.js --configLoader runner",
+    "test:browser": "node --test test/preview-browser.test.js",
     "test:coverage:node": "node --experimental-test-coverage --test test/api.test.js test/frontend-structure.test.js test/unit/pure-functions.test.js",
     "test:coverage:ui": "vitest run --coverage --config admin/vite.config.js --configLoader runner",
     "coverage": "npm run test:coverage:node && npm run test:coverage:ui",

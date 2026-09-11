@@ -15,6 +15,7 @@
       <button class="theme-toggle" @click="$emit('toggle-theme')"><AppIcon :name="colorMode==='dark'?'sun':'moon'"/><span>{{ colorMode==='dark'?tr('切换亮色','Use light mode'):tr('切换暗色','Use dark mode') }}</span></button>
       <a class="site-link" href="/" target="_blank"><AppIcon name="external"/><span>{{ tr('查看站点','View site') }}</span></a>
       <button class="logout-btn" @click="$emit('logout')"><AppIcon name="logout"/><span>{{ tr('退出登录','Sign out') }}</span></button>
+      <button class="logout-btn" @click="$emit('logout-all')"><AppIcon name="logout"/><span>{{ tr('退出所有会话','Sign out of all sessions') }}</span></button>
     </div>
   </aside>
 </template>
@@ -25,7 +26,7 @@ import { computed } from 'vue';
 import { useI18n } from '../i18n';
 import logoUrl from '../../../assets/hexo-admin-panel-logo.svg';
 const props = defineProps({ route: { type: String, required: true }, colorMode: { type: String, default: 'light' } });
-defineEmits(['navigate', 'logout', 'toggle-theme']);
+defineEmits(['navigate', 'logout', 'logout-all', 'toggle-theme']);
 const {locale,tr,toggleLocale}=useI18n();
 const items = computed(() => [
   { path: '/dashboard', label: tr('工作概览','Dashboard'), icon: 'dashboard' }, { path: '/posts', label: tr('文章管理','Posts'), icon: 'posts' }, { path: '/pages', label: tr('页面管理','Pages'), icon: 'about' }, { path: '/taxonomies', label: tr('分类标签','Taxonomies'), icon: 'taxonomy' },

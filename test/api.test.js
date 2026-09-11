@@ -4,15 +4,20 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const net = require('node:net');
+const { EventEmitter } = require('node:events');
 const { Readable } = require('node:stream');
 const test = require('node:test');
 const frontMatter = require('hexo-front-matter');
 const yaml = require('js-yaml');
 const sharp = require('sharp');
 const createApiHandler = require('../lib/api');
-const { gracefulExit } = require('../lib/modules/commands/restart');
-const { portAvailable, waitForServer } = require('../lib/modules/commands/restart-helper');
+const {
+  RESTART_EXIT_CODE,
+  SUPERVISED_ENV,
+  gracefulShutdown,
+  handoffRestart,
+  superviseReplacement
+} = require('../lib/modules/commands/restart');
 
 function relation(values) {
   return { toArray: () => values.map(name => ({ name })) };
@@ -110,6 +115,7 @@ function request(handler, method, url, options = {}) {
     req.method = method;
     req.url = url;
     req.headers = Object.fromEntries(Object.entries(options.headers || {}).map(([key, value]) => [key.toLowerCase(), value]));
+    if (options.socket) req.socket = options.socket;
 
     const chunks = [];
     const res = {
@@ -210,14 +216,14 @@ test('API validation rejects invalid body and query shapes with stable codes', a
   assert.equal(invalidConfig.json.code, 'VALIDATION_ERROR');
 });
 
-test('one-time default account is restricted until the password is changed', async t => {
+test('one-time initialization account is restricted until the password is changed', async t => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
-  fixture.config.password = 'admin';
+  fixture.config.password = 'random-bootstrap-test-password';
   fixture.config.requires_password_change = true;
 
   const loggedIn = await request(fixture.handler, 'POST', '/auth/login', {
-    body: JSON.stringify({ username: 'admin', password: 'admin' }),
+    body: JSON.stringify({ username: 'admin', password: 'random-bootstrap-test-password' }),
     headers: { 'content-type': 'application/json' }
   });
   assert.equal(loggedIn.statusCode, 200);
@@ -229,7 +235,7 @@ test('one-time default account is restricted until the password is changed', asy
 
   const changed = await request(fixture.handler, 'POST', '/auth/change-password', {
     headers: authHeaders(restrictedToken),
-    body: JSON.stringify({ currentPassword: 'admin', newPassword: 'A-longer-safe-passphrase-2026' })
+    body: JSON.stringify({ currentPassword: 'random-bootstrap-test-password', newPassword: 'A-longer-safe-passphrase-2026' })
   });
   assert.equal(changed.statusCode, 200);
   assert.equal(changed.json.data.mustChangePassword, false);
@@ -484,43 +490,102 @@ test('essays API preserves legacy data on read and backs up conflict-safe mutati
 
 test('rebuild and restart command completes builds before scheduling a safe handoff', async t => {
   const restarts = [];
+  const currentServer = {};
   const fixture = createFixture({
-    scheduleRestart(context, port) { restarts.push({ baseDir: context.hexo.base_dir, port }); return { scheduled: true, port }; }
+    scheduleRestart(context, port, runtime, server) {
+      restarts.push({ baseDir: context.hexo.base_dir, port, runtime, server });
+      return { scheduled: true, port, mode: 'foreground-supervised' };
+    }
   });
   t.after(fixture.cleanup);
   const token = await login(fixture.handler);
-  const response = await request(fixture.handler, 'POST', '/commands/rebuild-restart', { headers: authHeaders(token) });
+  const response = await request(fixture.handler, 'POST', '/commands/rebuild-restart', {
+    headers: authHeaders(token),
+    socket: { localPort: 4100, server: currentServer }
+  });
   assert.equal(response.statusCode, 202);
   assert.deepEqual(fixture.calls, ['clean', 'generate']);
   assert.equal(restarts.length, 1);
-  assert.equal(restarts[0].port, 4000);
+  assert.equal(restarts[0].port, 4100);
+  assert.equal(restarts[0].server, currentServer);
   assert.equal(response.json.data.scheduled, true);
+  assert.equal(response.json.data.mode, 'foreground-supervised');
   assert.match(response.json.data.previousInstanceId, /^[0-9a-f-]{36}$/);
 });
 
-test('restart cleanup stops the watcher and lets Hexo flush before exiting', async () => {
+test('restart cleanup releases the listener and Hexo resources without terminating the terminal process', async () => {
   const calls = [];
+  const server = {
+    listening: true,
+    close(callback) { calls.push('server-close'); this.listening = false; callback(); },
+    closeIdleConnections() { calls.push('close-idle'); }
+  };
   const context = { hexo: {
     async unwatch() { calls.push('unwatch'); },
     async exit() { calls.push('hexo-exit'); },
     log: { error() {} }
   } };
-  await gracefulExit(context, { exit(code) { calls.push('process-exit:' + code); } });
-  assert.deepEqual(calls, ['unwatch', 'hexo-exit', 'process-exit:0']);
+  await gracefulShutdown(context, server);
+  assert.deepEqual(calls, ['server-close', 'close-idle', 'unwatch', 'hexo-exit']);
 });
 
-test('restart helper recognizes the replacement server only after its port is listening', async t => {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+test('foreground supervisor respawns a requested restart without detaching stdio', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hexo-admin-restart-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const spawned = [];
+  const exits = [];
+  const runtime = {
+    env: { PATH: process.env.PATH },
+    spawn(command, args, options) {
+      const child = new EventEmitter();
+      child.pid = 1000 + spawned.length;
+      spawned.push({ command, args, options, child });
+      return child;
+    },
+    exit(code) { exits.push(code); }
+  };
+  const payload = {
+    node: process.execPath,
+    cli: path.join(directory, 'hexo'),
+    cwd: directory,
+    port: 4000,
+    ip: null,
+    log: path.join(directory, 'restart.log')
+  };
+
+  const first = superviseReplacement(payload, runtime);
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].options.detached, false);
+  assert.deepEqual(spawned[0].options.stdio, ['inherit', 'inherit', 'inherit', 'ipc']);
+  assert.equal(spawned[0].options.env[SUPERVISED_ENV], '1');
+  first.emit('exit', RESTART_EXIT_CODE, null);
+  assert.equal(spawned.length, 2);
+  assert.deepEqual(exits, []);
+  spawned[1].child.emit('exit', 0, null);
+  assert.deepEqual(exits, [0]);
+});
+
+test('supervised replacement asks its existing foreground supervisor to restart it', async t => {
+  const calls = [];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hexo-admin-supervised-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const context = { hexo: {
+    async unwatch() { calls.push('unwatch'); },
+    async exit() { calls.push('hexo-exit'); },
+    log: { error() {} }
+  } };
+  const server = {
+    listening: true,
+    close(callback) { calls.push('server-close'); this.listening = false; callback(); },
+    closeIdleConnections() {}
+  };
+  const payload = { port: 4000, log: path.join(directory, 'restart.log') };
+  await handoffRestart(context, payload, server, {
+    env: { [SUPERVISED_ENV]: '1' },
+    connected: true,
+    exit(code) { calls.push('process-exit:' + code); }
   });
-  t.after(() => { if (server.listening) server.close(); });
-  const port = server.address().port;
-  assert.equal(await portAvailable(port, '127.0.0.1'), false);
-  await waitForServer({ port, ip: '127.0.0.1' }, { kill() {} }, { error: null, exited: false, code: null, signal: null });
-  await new Promise(resolve => server.close(resolve));
-  assert.equal(await portAvailable(port, '127.0.0.1'), true);
+  assert.deepEqual(calls, ['server-close', 'unwatch', 'hexo-exit', 'process-exit:' + RESTART_EXIT_CODE]);
 });
 
 test('config API synchronizes structured data and YAML source', async t => {
@@ -701,8 +766,11 @@ test('media analysis reports references and compression keeps a recoverable back
 
   const nested = await request(fixture.handler, 'GET', '/media?search=albums', { headers });
   assert.deepEqual(nested.json.data.files.map(file => file.name), ['albums/nested.png']);
-  const renamed = await request(fixture.handler, 'PUT', '/media/' + encodeURIComponent('albums/nested.png') + '/rename', {
+  const renamePreview = await request(fixture.handler, 'POST', '/media/' + encodeURIComponent('albums/nested.png') + '/rename-preview', {
     headers, body: JSON.stringify({ name: 'renamed.png' })
+  });
+  const renamed = await request(fixture.handler, 'PUT', '/media/' + encodeURIComponent('albums/nested.png') + '/rename', {
+    headers, body: JSON.stringify({ name: 'renamed.png', revision: renamePreview.json.data.revision })
   });
   assert.equal(renamed.json.data.name, 'albums/renamed.png');
   assert.equal(fs.existsSync(path.join(imagesDir, 'albums', 'renamed.png')), true);
@@ -906,6 +974,10 @@ test('temporary preview serves a real generated iframe document through an expir
   const page = await request(fixture.handler, 'GET', route);
   assert.equal(page.statusCode, 200);
   assert.equal(page.headers['X-Frame-Options'], 'SAMEORIGIN');
+  assert.match(page.headers['Content-Security-Policy'], /(?:^|;)\s*sandbox allow-scripts;/);
+  assert.doesNotMatch(page.headers['Content-Security-Policy'], /allow-same-origin|allow-top-navigation|allow-popups/);
+  assert.equal(page.headers['Access-Control-Allow-Origin'], '*');
+  assert.equal(page.headers['Cross-Origin-Resource-Policy'], 'cross-origin');
   assert.match(page.text, /<base href="\/admin\/api\/previews\//);
   assert.match(page.text, /href="\/admin\/api\/previews\/.+\/archives\//);
 });
@@ -953,4 +1025,154 @@ test('render, taxonomy, theme and command endpoints respond successfully', async
   assert.deepEqual(fixture.calls, ['generate', 'deploy', 'clean']);
   const jobs = await request(fixture.handler, 'GET', '/commands/jobs?limit=2', { headers });
   assert.equal(jobs.json.data.items.length, 2);
+});
+
+test('media rename previews and rewrites source and configuration references without touching external URLs', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  fixture.hexo.config.url = 'https://blog.example/blog/';
+  fixture.hexo.config.root = '/blog/';
+  const headers = authHeaders(await login(fixture.handler));
+  const imagePath = path.join(fixture.sourceDir, 'images', 'cover.png');
+  fs.writeFileSync(imagePath, 'original media');
+  const postPath = path.join(fixture.postsDir, 'references.md');
+  const raw = '---\ntitle: References\ncover: /blog/images/cover.png\n---\n![a](/images/cover.png?size=1#top)\n![b](https://elsewhere.example/images/cover.png)\n![c](https://blog.example/blog/images/cover.png)\n';
+  fs.writeFileSync(postPath, raw);
+  const themeConfig = path.join(fixture.baseDir, '_config.redefine.yml');
+  fs.writeFileSync(themeConfig, '# retain this comment\ncover: /blog/images/cover.png\n');
+  fs.appendFileSync(fixture.configPath, 'cover: /images/cover.png\n');
+  const endpoint = '/media/cover.png';
+  const preview = await request(fixture.handler, 'POST', endpoint + '/rename-preview', { headers, body: JSON.stringify({ name: 'album/new.png' }) });
+  assert.equal(preview.statusCode, 200);
+  assert.equal(preview.json.data.affectedFiles, 3);
+  assert.equal(preview.json.data.references.find(item => item.source === '_posts/references.md').count, 3);
+  assert.equal(fs.readFileSync(postPath, 'utf8'), raw, 'preview must not mutate files');
+  const unconfirmed = await request(fixture.handler, 'PUT', endpoint + '/rename', { headers, body: JSON.stringify({ name: 'album/new.png' }) });
+  assert.equal(unconfirmed.statusCode, 428);
+  const renamed = await request(fixture.handler, 'PUT', endpoint + '/rename', { headers, body: JSON.stringify({ name: 'album/new.png', revision: preview.json.data.revision }) });
+  assert.equal(renamed.statusCode, 200);
+  assert.equal(renamed.json.data.affectedFiles, 3);
+  assert.equal(fs.readFileSync(path.join(fixture.sourceDir, 'images', 'album', 'new.png'), 'utf8'), 'original media');
+  assert.equal(fs.readFileSync(postPath, 'utf8'), raw.replaceAll('/blog/images/cover.png', '/blog/images/album/new.png').replace('(/images/cover.png?', '(/images/album/new.png?'));
+  assert.equal(fs.readFileSync(themeConfig, 'utf8'), '# retain this comment\ncover: /blog/images/album/new.png\n');
+  const backup = path.join(fixture.baseDir, '.hexo-admin', 'backups', 'media', renamed.json.data.backupId);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(backup, 'manifest.json'))).status, 'completed');
+  assert.equal(fs.readFileSync(path.join(backup, 'media.original'), 'utf8'), 'original media');
+});
+
+test('media scan counts configuration references and ignores remote images with matching names', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const headers = authHeaders(await login(fixture.handler));
+  for (const name of ['config.png', 'remote.png']) fs.writeFileSync(path.join(fixture.sourceDir, 'images', name), name);
+  fs.appendFileSync(fixture.configPath, 'cover: /images/config.png\n');
+  fs.writeFileSync(path.join(fixture.sourceDir, 'links.md'), '![external](https://outside.example/images/remote.png)');
+  const response = await request(fixture.handler, 'GET', '/media/analysis', { headers });
+  assert.equal(response.json.data.items.find(item => item.name === 'config.png').used, true);
+  assert.equal(response.json.data.items.find(item => item.name === 'remote.png').used, false);
+  assert.ok(response.json.data.scanScope.excludes.includes('dynamic/generated references'));
+});
+
+test('media rename rejects a stale preview including newly added references', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const headers = authHeaders(await login(fixture.handler));
+  const imagePath = path.join(fixture.sourceDir, 'images', 'a.png');
+  fs.writeFileSync(imagePath, 'original');
+  const preview = await request(fixture.handler, 'POST', '/media/a.png/rename-preview', { headers, body: JSON.stringify({ name: 'b.png' }) });
+  fs.writeFileSync(path.join(fixture.sourceDir, 'new.md'), '![new](/images/a.png)');
+  const response = await request(fixture.handler, 'PUT', '/media/a.png/rename', { headers, body: JSON.stringify({ name: 'b.png', revision: preview.json.data.revision }) });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.json.code, 'MEDIA_RENAME_CONFLICT');
+  assert.equal(fs.existsSync(imagePath), true);
+});
+
+test('media rename rolls back the file and all changed references if Hexo refresh fails', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const headers = authHeaders(await login(fixture.handler));
+  const imagePath = path.join(fixture.sourceDir, 'images', 'a.png');
+  const documentPath = path.join(fixture.sourceDir, 'a.md');
+  fs.writeFileSync(imagePath, 'original');
+  fs.writeFileSync(documentPath, '![a](/images/a.png)');
+  const preview = await request(fixture.handler, 'POST', '/media/a.png/rename-preview', { headers, body: JSON.stringify({ name: 'b.png' }) });
+  fixture.hexo.source.process = async () => { throw new Error('renderer failed'); };
+  const response = await request(fixture.handler, 'PUT', '/media/a.png/rename', { headers, body: JSON.stringify({ name: 'b.png', revision: preview.json.data.revision }) });
+  assert.equal(response.statusCode, 500);
+  assert.equal(response.json.code, 'MEDIA_RENAME_FAILED');
+  assert.equal(fs.readFileSync(imagePath, 'utf8'), 'original');
+  assert.equal(fs.existsSync(path.join(fixture.sourceDir, 'images', 'b.png')), false);
+  assert.equal(fs.readFileSync(documentPath, 'utf8'), '![a](/images/a.png)');
+});
+
+test('post and page saves return their committed revision even when source refresh fails', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const headers = authHeaders(await login(fixture.handler));
+  const post = await request(fixture.handler, 'POST', '/posts', { headers, body: JSON.stringify({ title: 'Save status', published: true }) });
+  const page = await request(fixture.handler, 'POST', '/pages', { headers, body: JSON.stringify({ title: 'Page', path: 'page/index.md' }) });
+  fixture.hexo.source.process = async () => { throw new Error('renderer failed'); };
+  for (const [url, revision, location] of [
+    ['/posts/' + post.json.data._id, post.json.data.revision, path.join(fixture.postsDir, 'save-status.md')],
+    ['/pages/' + page.json.data.id, page.json.data.revision, path.join(fixture.sourceDir, 'page', 'index.md')]
+  ]) {
+    const raw = '---\ntitle: Saved\n---\nContent is on disk\n';
+    const saved = await request(fixture.handler, 'PUT', url, { headers, body: JSON.stringify({ raw, revision }) });
+    assert.equal(saved.statusCode, 200);
+    assert.equal(saved.json.data.saved, true);
+    assert.equal(saved.json.data.refreshed, false);
+    assert.equal(saved.json.data.warning.code, 'SOURCE_REFRESH_FAILED');
+    assert.equal(saved.json.data.revision, require('../lib/shared/revision').contentRevision(raw));
+    assert.equal(fs.readFileSync(location, 'utf8'), raw);
+    const retry = await request(fixture.handler, 'PUT', url, { headers, body: JSON.stringify({ raw: raw + 'next', revision: saved.json.data.revision }) });
+    assert.equal(retry.statusCode, 200);
+  }
+  const created = await request(fixture.handler, 'POST', '/posts', { headers, body: JSON.stringify({ title: 'Created despite refresh' }) });
+  assert.equal(created.statusCode, 200);
+  assert.equal(created.json.data.refreshed, false);
+  assert.ok(created.json.data._id);
+  const createdPage = await request(fixture.handler, 'POST', '/pages', { headers, body: JSON.stringify({ title: 'New', path: 'new/index.md' }) });
+  assert.equal(createdPage.statusCode, 200);
+  assert.equal(createdPage.json.data.saved, true);
+});
+
+test('logout revokes only the current session and remains effective after handler restart', async t => {
+  const fixture = createFixture({ setInterval() { return { unref() {} }; } });
+  t.after(fixture.cleanup);
+  const first = await login(fixture.handler), second = await login(fixture.handler);
+  assert.notEqual(first, second);
+  const result = await request(fixture.handler, 'POST', '/auth/logout', { headers: authHeaders(first) });
+  assert.equal(result.statusCode, 200);
+  assert.equal((await request(fixture.handler, 'GET', '/stats', { headers: authHeaders(first) })).statusCode, 401);
+  assert.equal((await request(fixture.handler, 'GET', '/stats', { headers: authHeaders(second) })).statusCode, 200);
+  const restarted = createApiHandler(fixture.hexo, fixture.config, { setInterval() { return { unref() {} }; } });
+  assert.equal((await request(restarted, 'GET', '/stats', { headers: authHeaders(first) })).statusCode, 401);
+  assert.equal((await request(restarted, 'GET', '/stats', { headers: authHeaders(second) })).statusCode, 200);
+});
+
+test('logout-all persists a new signing key and invalidates all old sessions across restart', async t => {
+  const fixture = createFixture({ setInterval() { return { unref() {} }; } });
+  t.after(fixture.cleanup);
+  const first = await login(fixture.handler), second = await login(fixture.handler);
+  const oldSecret = fixture.config.jwt_secret;
+  const response = await request(fixture.handler, 'POST', '/auth/logout-all', { headers: authHeaders(first) });
+  assert.equal(response.statusCode, 200);
+  assert.notEqual(fixture.config.jwt_secret, oldSecret);
+  const { loadAdminConfig } = require('../lib/plugin/load-config');
+  const reloaded = await loadAdminConfig(fixture.hexo);
+  const restarted = createApiHandler(fixture.hexo, reloaded, { setInterval() { return { unref() {} }; } });
+  for (const token of [first, second]) assert.equal((await request(restarted, 'GET', '/stats', { headers: authHeaders(token) })).statusCode, 401);
+  assert.ok(await login(restarted));
+});
+
+test('login limiting cannot be bypassed by changing usernames or concurrent requests', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const attempts = await Promise.all(Array.from({ length: 8 }, (_, index) => request(fixture.handler, 'POST', '/auth/login', {
+    body: JSON.stringify({ username: 'different-' + index, password: 'wrong' }), headers: { 'content-type': 'application/json' }
+  })));
+  assert.equal(attempts.filter(item => item.statusCode === 401).length, 5);
+  assert.equal(attempts.filter(item => item.statusCode === 429).length, 3);
+  const correct = await request(fixture.handler, 'POST', '/auth/login', { body: JSON.stringify({ username: 'admin', password: 'secret' }) });
+  assert.equal(correct.statusCode, 429);
 });

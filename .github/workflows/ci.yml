@@ -23,6 +23,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - run: npm run test:browser
+        if: matrix.node == 22
       - run: npm run coverage
       - run: npm run build
       - run: npm pack --dry-run --ignore-scripts
