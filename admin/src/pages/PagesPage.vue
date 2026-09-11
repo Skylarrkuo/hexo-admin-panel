@@ -1,5 +1,7 @@
 <template>
   <section>
+    <LocalDraftNotice :draft="formDraft"/>
+    <LocalDraftNotice :draft="menuDraft"/>
     <div class="section-heading"><div><h2>{{ tr('通用页面管理','Page manager') }}</h2><p>{{ tr('管理 source 下的 index.md 与独立 Markdown 页面，并维护真实主题菜单顺序。','Manage index.md and standalone Markdown pages under source, plus the active theme menu order.') }}</p></div><button class="btn btn-primary" @click="creating=!creating">＋ {{ tr('新建页面','New page') }}</button></div>
     <div v-if="creating" class="card page-create-card"><div class="card-title">{{ tr('创建独立页面','Create page') }}</div><div class="form-row"><div class="form-group"><label>{{ tr('标题','Title') }}</label><input v-model="form.title"></div><div class="form-group"><label>{{ tr('源码路径','Source path') }}</label><input v-model="form.path" placeholder="projects/index.md"></div></div><div class="form-row"><div class="form-group"><label>{{ tr('Hexo Scaffold','Hexo scaffold') }}</label><select v-model="form.scaffold"><option value="">{{ tr('不使用模板','No scaffold') }}</option><option v-for="item in scaffolds" :key="item.name" :value="item.name">{{ item.name }}</option></select></div><div class="form-group"><label>{{ tr('页面布局','Layout') }}</label><input v-model="form.layout" placeholder="page"></div></div><div class="btn-group"><button class="btn btn-primary" :disabled="creatingBusy||!form.title.trim()||!form.path.trim()" @click="create">{{ tr('创建并编辑','Create and edit') }}</button><button class="btn btn-outline" @click="creating=false">{{ tr('取消','Cancel') }}</button></div></div>
     <div class="pages-grid">
@@ -11,15 +13,22 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
+import LocalDraftNotice from '../components/LocalDraftNotice.vue';
+import {useLocalDraft} from '../composables/useLocalDraft';
 import { api } from '../api/client';
 import { useI18n } from '../i18n';
-const {tr,errorMessage}=useI18n();const emit=defineEmits(['edit','notify','request-confirm']);
+const {tr,errorMessage}=useI18n();const emit=defineEmits(['edit','notify','request-confirm','dirty-change']);
 const pages=ref([]),menu=ref({items:[],revision:'',configPath:''}),scaffolds=ref([]),loading=ref(false),creating=ref(false),creatingBusy=ref(false),menuSaving=ref(false);
 const form=reactive({title:'',path:'',scaffold:'page',layout:'page'});
-async function load(){loading.value=true;try{const [data,templates]=await Promise.all([api.get('/pages'),api.get('/scaffolds')]);pages.value=data.items||[];menu.value=data.menu||{items:[]};scaffolds.value=templates.items||[];if(!scaffolds.value.some(item=>item.name===form.scaffold))form.scaffold=scaffolds.value[0]?.name||'';}catch(error){emit('notify',errorMessage(error),'error');}finally{loading.value=false;}}
-async function create(){creatingBusy.value=true;try{const data=await api.post('/pages',{...form,title:form.title.trim(),path:form.path.trim()});emit('notify',data.refreshed===false?tr('内容已保存到文件，但 Hexo 刷新失败。请检查服务日志，修复后重建站点；无需重复提交内容。','Content was saved to disk, but Hexo refresh failed. Check the server logs and rebuild after fixing the error; the content does not need to be resubmitted.'):tr('页面已创建','Page created'),data.refreshed===false?'warning':'success');creating.value=false;emit('edit',data.id);}catch(error){emit('notify',errorMessage(error),'error');}finally{creatingBusy.value=false;}}
+const flags={form:false,menu:false};
+function draftEmit(kind,event,value){flags[kind]=value;emit(event,flags.form||flags.menu);}
+const formDraft=useLocalDraft({key:()=> 'page_create',state:()=>({...form}),apply:value=>{Object.assign(form,value);creating.value=true;},emit:(event,value)=>draftEmit('form',event,value)});
+const menuDraft=useLocalDraft({key:()=> 'page_menu',state:()=>({items:menu.value.items,revision:menu.value.revision}),apply:value=>{menu.value={...menu.value,...value};},emit:(event,value)=>draftEmit('menu',event,value)});
+let initialized=false;
+async function load(){loading.value=true;try{const [data,templates]=await Promise.all([api.get('/pages'),api.get('/scaffolds')]);pages.value=data.items||[];if(!menuDraft.dirty.value&&!menuDraft.pending.value){menu.value=data.menu||{items:[]};menuDraft.loaded();}scaffolds.value=templates.items||[];if(!initialized){if(!scaffolds.value.some(item=>item.name===form.scaffold))form.scaffold=scaffolds.value[0]?.name||'';formDraft.loaded();initialized=true;}}catch(error){emit('notify',errorMessage(error),'error');}finally{loading.value=false;}}
+async function create(){creatingBusy.value=true;try{const snapshot=formDraft.snapshot();const data=await api.post('/pages',{...form,title:form.title.trim(),path:form.path.trim()});emit('notify',data.refreshed===false?tr('内容已保存到文件，但 Hexo 刷新失败。请检查服务日志，修复后重建站点；无需重复提交内容。','Content was saved to disk, but Hexo refresh failed. Check the server logs and rebuild after fixing the error; the content does not need to be resubmitted.'):tr('页面已创建','Page created'),data.refreshed===false?'warning':'success');formDraft.saved(snapshot);if(!formDraft.dirty.value)creating.value=false;emit('edit',data.id);}catch(error){emit('notify',errorMessage(error),'error');}finally{creatingBusy.value=false;}}
 function remove(page){emit('request-confirm',tr('删除页面','Delete page'),tr('确定删除“{title}”吗？文件会移入回收站。','Delete “{title}”? The file will be moved to trash.',{title:page.title}),async()=>{try{await api.del('/pages/'+page.id,page.revision);emit('notify',tr('页面已移入回收站','Page moved to trash'),'success');load();}catch(error){emit('notify',errorMessage(error),'error');}});}
 function move(index,delta){const items=menu.value.items.slice();const target=index+delta;[items[index],items[target]]=[items[target],items[index]];menu.value={...menu.value,items};}
-async function saveMenu(){menuSaving.value=true;try{const saved=await api.put('/pages/menu',{items:menu.value.items.map(({label,path,icon})=>({label,path,icon})),revision:menu.value.revision});menu.value={...menu.value,...saved};emit('notify',tr('主题菜单顺序已保存','Theme menu order saved'),'success');}catch(error){emit('notify',errorMessage(error),'error');}finally{menuSaving.value=false;}}
+async function saveMenu(){menuSaving.value=true;try{const snapshot=menuDraft.snapshot();const saved=await api.put('/pages/menu',{items:menu.value.items.map(({label,path,icon})=>({label,path,icon})),revision:menu.value.revision});const edited=JSON.stringify(menuDraft.snapshot())!==JSON.stringify(snapshot);menu.value={...menu.value,...saved,...(edited?{items:menu.value.items}:{})};snapshot.revision=saved.revision;menuDraft.saved(snapshot);emit('notify',tr('主题菜单顺序已保存','Theme menu order saved'),'success');}catch(error){emit('notify',errorMessage(error),'error');}finally{menuSaving.value=false;}}
 onMounted(load);
 </script>

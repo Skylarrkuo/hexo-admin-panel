@@ -1,6 +1,6 @@
 {
   "name": "hexo-admin-panel",
-  "version": "3.3.0",
+  "version": "3.5.0",
   "description": "A modular Vue-powered admin dashboard with direct Hexo API integration",
   "main": "index.js",
   "scripts": {
@@ -44,6 +44,7 @@
     "lib/",
     "dist/",
     "assets/",
+    "docs/",
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
@@ -53,7 +54,8 @@
   "dependencies": {
     "hexo-front-matter": "^4.2.1",
     "js-yaml": "^4.3.1",
-    "sharp": "^0.34.4"
+    "sharp": "^0.34.4",
+    "yaml": "^2.9.0"
   },
   "peerDependencies": {
     "hexo": ">=4.0.0"

@@ -74,7 +74,7 @@ Vue admin interface in the browser
 - Choose a Hexo scaffold, page layout, and source path when creating a page.
 - Detect common `navbar.links` or `menu` theme structures and reorder navigation entries.
 - View taxonomy usage and merge, rename, or delete categories and tags.
-- Manage Redefine theme settings and `source/_data/essays.yml` entries.
+- Manage Redefine theme settings and `source/_data/essays.yml` entries, including selected-entry batch editing, paste-to-split bulk creation, shared dates and Markdown previews. Up to 100 entries are validated and saved atomically per batch.
 - Protect site configuration, theme configuration, posts, pages, and essays with revision-aware writes.
 
 ### Media library
@@ -105,6 +105,22 @@ Vue admin interface in the browser
 - Refresh the Hexo source only once after an entire bulk publish, unpublish, or trash operation completes.
 - Provide Chinese and English interfaces, light and dark modes, and responsive desktop and mobile layouts.
 - Surface task state and raw Hexo output in both the dashboard and publishing center.
+
+## Content versions and verified publishing
+
+Posts and pages now provide version history, diffs, restore, and three-way conflict resolution. Independent edits can merge automatically; overlapping edits remain explicit. Local drafts survive disconnects and expired sessions in post, page, new-post, essay, About, and configuration editors, retaining their original revision.
+
+The Publishing center runs **confirm saved revisions → check → build → deploy → verify online**, recording each step and its content versions. “In site source” describes Hexo content state; a verified release additionally requires the online release marker and every built HTML file to match. Configuration changes require a restart. Panel writes are blocked during the workflow, and external changes are checked at stage boundaries.
+
+Checks report missing titles/images, broken internal and reference links, duplicate permalinks, common Front Matter type errors, missing post assets, and missing code languages, with file/field/line and editor links. Errors block the complete workflow; missing languages are warnings. Drafts are optional unless Hexo renders them. Standalone Hexo command endpoints remain available.
+
+Post assets support upload, reference-aware rename and deletion, and move with drafts when publishing. File names support the documented Hexo date placeholders, `:hash`, and custom values from Front Matter or `permalink_defaults` (including `:lang`); media paths and time inputs respect the site root and timezone. Ambiguous or nonexistent DST input times are rejected.
+
+Recovery centralizes text history and identifiable legacy configuration, essay, menu, taxonomy, and media backups. Preview text diffs or original images before restoring with optimistic revision checks. History retains up to 50 text versions or 5 binary versions per file, 10000 versions and 512 MiB overall, without time-based expiry. Legacy policies remain separate. Restores from old multi-file backups operate per file; unidentifiable legacy targets are never guessed. External file edits are captured before the next panel write, not continuously watched.
+
+Configuration editing preserves YAML comments, writes changed overrides, exposes defaults versus overrides, supports resetting overrides, validates fields, and requires a save-diff review. Online verification supports up to 2000 HTML files, 10 MiB per file, with a 15-second request timeout. CDN propagation, HTML rewriting, redirects, or omitted release markers cause verification failure rather than a false verified status. Dynamic template references and remote link availability are outside static checks.
+
+See [workflow details and API routes](docs/workflows.md).
 
 ## Requirements
 
@@ -390,7 +406,7 @@ For security issues involving credentials, path boundaries, arbitrary file write
 
 ## Versions and releases
 
-The current version is `3.3.0`. The project follows Semantic Versioning; see [CHANGELOG.md](./CHANGELOG.md) for details.
+The current version is `3.5.0`. The project follows Semantic Versioning; see [CHANGELOG.md](./CHANGELOG.md) for details.
 
 README: [简体中文](./README.md) · <strong>English</strong>
 

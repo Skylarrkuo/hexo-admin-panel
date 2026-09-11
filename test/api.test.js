@@ -1176,3 +1176,220 @@ test('login limiting cannot be bypassed by changing usernames or concurrent requ
   const correct = await request(fixture.handler, 'POST', '/auth/login', { body: JSON.stringify({ username: 'admin', password: 'secret' }) });
   assert.equal(correct.statusCode, 429);
 });
+
+
+test('content history preserves preimages across restart and restore rejects a stale preview', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);const token=await login(fixture.handler);
+  const send=async(method,url,body)=>request(fixture.handler,method,url,{headers:authHeaders(token),body:body===undefined?undefined:JSON.stringify(body)});
+  const created=(await send('POST','/pages',{path:'history/index.md',title:'First',content:'Original'})).json.data;
+  let page=(await send('GET','/pages/'+created.id)).json.data;
+  const first=page.raw;
+  await send('PUT','/pages/'+created.id,{raw:first.replace('Original','Second'),revision:page.revision});
+  const history=(await send('GET','/history?source='+encodeURIComponent(page.historySource))).json.data;
+  assert.equal(history.items.length,1);assert.equal(history.items[0].content,undefined);
+  const id=history.items[0].id;
+  const preview=(await send('GET','/history/'+id)).json.data;assert.equal(preview.content,first);assert.match(preview.current,/Second/);
+  fs.appendFileSync(path.join(fixture.sourceDir,'history/index.md'),'\nExternal');
+  assert.equal((await send('POST','/history/'+id+'/restore',{revision:preview.currentRevision})).statusCode,409);
+  const latest=(await send('GET','/history/'+id)).json.data;
+  const restored=await send('POST','/history/'+id+'/restore',{revision:latest.currentRevision});assert.equal(restored.statusCode,200);
+  assert.equal(fs.readFileSync(path.join(fixture.sourceDir,'history/index.md'),'utf8'),first);
+  const restarted=createApiHandler(fixture.hexo,fixture.config);
+  const after=await request(restarted,'GET','/history/'+id,{headers:authHeaders(token)});assert.equal(after.json.data.content,first);
+  assert.equal((await send('GET','/history?source=../escape.md')).statusCode,400);
+  assert.equal((await send('GET','/history?source=.hexo-admin/auth.json')).statusCode,400);
+});
+
+test('configuration preview preserves comments, validates fields, and resets theme overrides', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);const token=await login(fixture.handler);
+  const send=async(method,url,body)=>request(fixture.handler,method,url,{headers:authHeaders(token),body:body===undefined?undefined:JSON.stringify(body)});
+  fs.writeFileSync(fixture.configPath,'# Site comment\ntitle: Original # title comment\ntheme: redefine\nper_page: 10\n');
+  let current=(await send('GET','/config')).json.data;
+  const preview=await send('POST','/config/preview',{type:'site',revision:current.revision,data:{title:'Changed'}});
+  assert.equal(preview.statusCode,200);assert.match(preview.json.data.after,/# Site comment/);assert.match(preview.json.data.after,/# title comment/);
+  assert.match(fs.readFileSync(fixture.configPath,'utf8'),/Original/);
+  assert.equal((await send('PUT','/config',{type:'site',revision:current.revision,data:{per_page:-1}})).statusCode,400);
+  fs.writeFileSync(path.join(fixture.baseDir,'_config.redefine.yml'),'# Keep override notes\ninfo:\n  title: Custom\n');
+  current=(await send('GET','/config?type=theme')).json.data;
+  const reset=await send('PUT','/config',{type:'theme',revision:current.revision,data:current.parsed,unset:['info.title']});
+  assert.equal(reset.statusCode,200);
+  assert.doesNotMatch(fs.readFileSync(path.join(fixture.baseDir,'_config.redefine.yml'),'utf8'),/Custom/);
+  assert.match(fs.readFileSync(path.join(fixture.baseDir,'_config.redefine.yml'),'utf8'),/# Keep override notes/);
+  assert.equal((await send('GET','/config?type=theme')).json.data.parsed.info.title,'Theme');
+});
+
+test('content checks locate missing images, links, types, duplicates and language warnings', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);const token=await login(fixture.handler);
+  fixture.hexo.config.url='https://example.test/blog/';fixture.hexo.config.root='/blog/';fixture.hexo.config.post_asset_folder=true;
+  fs.mkdirSync(path.join(fixture.postsDir,'valid'),{recursive:true});fs.writeFileSync(path.join(fixture.postsDir,'valid','present.png'),'present');
+  fs.writeFileSync(path.join(fixture.postsDir,'valid.md'),'---\ntitle: Valid\npermalink: /blog/same/\n---\n{% asset_img present.png %}\n![Remote](https://other.test/blog/images/missing.png)\n');
+  fs.writeFileSync(path.join(fixture.postsDir,'broken.md'),'---\ntitle: ""\npermalink: /blog/same/\ncomments: wrong\n---\n![Missing](/blog/images/missing.png)\n[Broken](/blog/absent/)\n```\nignore ![image](ignored.png)\n```\n');
+  await fixture.processSource();
+  const response=await request(fixture.handler,'GET','/checks',{headers:authHeaders(token)});assert.equal(response.statusCode,200);
+  const report=response.json.data;const codes=report.issues.map(item=>item.code);
+  for(const code of ['TITLE_REQUIRED','FRONT_MATTER_TYPE','PERMALINK_DUPLICATE','IMAGE_MISSING','LINK_BROKEN','CODE_LANGUAGE_MISSING'])assert.ok(codes.includes(code),code);
+  assert.equal(report.issues.filter(item=>item.code==='IMAGE_MISSING').length,1);
+  assert.ok(report.issues.every(item=>item.line>=1&&item.source.endsWith('.md')));
+});
+
+test('publishing records versions and only verifies matching deployed HTML and marker', async t => {
+  let fixture;
+  const runtime={hexoCall:async({name,hexo})=>{if(name==='generate'){fs.mkdirSync(hexo.public_dir,{recursive:true});fs.writeFileSync(path.join(hexo.public_dir,'index.html'),'<html>release</html>');}},fetch:async(url)=>new Response(fs.readFileSync(path.join(fixture.hexo.public_dir,path.basename(url.pathname))))};
+  fixture=createFixture(runtime);t.after(fixture.cleanup);fixture.hexo.config.url='https://example.test/blog/';fixture.hexo.config.root='/blog/';
+  const token=await login(fixture.handler);
+  const check=await request(fixture.handler,'GET','/checks',{headers:authHeaders(token)});
+  const started=await request(fixture.handler,'POST','/publishing/run',{headers:authHeaders(token),body:JSON.stringify({revision:check.json.data.revision})});assert.equal(started.statusCode,202);
+  const job=await waitForCommandJob(fixture.handler,token,started.json.data.job.id);
+  assert.equal(job.status,'completed',job.error);assert.equal(job.result.verified,true);assert.equal(job.result.steps.length,5);assert.ok(job.result.versions.some(item=>item.source==='_config.yml'));assert.ok(job.result.versions.some(item=>item.source==='themes/redefine/_config.yml'));
+  assert.deepEqual(fixture.calls,['clean','generate','deploy']);
+  runtime.fetch=async(url)=>new Response(url.pathname.endsWith('.json')?fs.readFileSync(path.join(fixture.hexo.public_dir,'hexo-admin-release.json')):'Old HTML');
+  const next=await request(fixture.handler,'POST','/publishing/run',{headers:authHeaders(token),body:JSON.stringify({revision:check.json.data.revision})});
+  const failed=await waitForCommandJob(fixture.handler,token,next.json.data.job.id);assert.equal(failed.status,'failed');assert.equal(failed.result.verified,false);assert.equal(failed.result.steps.at(-1).name,'线上验证');assert.match(failed.error,/index.html/);
+});
+
+test('publishing rejects stale manifests and blocks deployment on content errors', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);fixture.hexo.config.url='https://example.test/';const token=await login(fixture.handler);
+  const check=await request(fixture.handler,'GET','/checks',{headers:authHeaders(token)});
+  fs.writeFileSync(path.join(fixture.postsDir,'broken.md'),'---\ntitle: Broken\n---\n![Missing](/images/missing.png)');
+  const start=async(revision)=>request(fixture.handler,'POST','/publishing/run',{headers:authHeaders(token),body:JSON.stringify({revision})});
+  assert.equal((await start(check.json.data.revision)).statusCode,409);
+  const latest=await request(fixture.handler,'GET','/checks',{headers:authHeaders(token)});
+  const result=await start(latest.json.data.revision);const job=await waitForCommandJob(fixture.handler,token,result.json.data.job.id);
+  assert.equal(job.status,'failed');assert.equal(job.errorCode,'CONTENT_CHECK_FAILED');assert.deepEqual(fixture.calls,[]);
+});
+
+test('media deletion requires reviewing references and detects new references after preview', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);const token=await login(fixture.handler);
+  fs.writeFileSync(path.join(fixture.sourceDir,'images','used.png'),'image');fs.writeFileSync(path.join(fixture.postsDir,'post.md'),'---\ntitle: Post\n---\n![used](/images/used.png)');
+  const preview=await request(fixture.handler,'GET','/media/used.png/delete-preview',{headers:authHeaders(token)});assert.equal(preview.json.data.references.length,1);
+  assert.equal((await request(fixture.handler,'DELETE','/media/used.png',{headers:authHeaders(token)})).statusCode,428);
+  fs.appendFileSync(path.join(fixture.postsDir,'post.md'),'\nNew content');
+  assert.equal((await request(fixture.handler,'DELETE','/media/used.png',{headers:authHeaders(token,{'if-match':preview.json.data.revision})})).statusCode,409);
+  const filtered=await request(fixture.handler,'GET','/media?source=_posts%2Fpost.md',{headers:authHeaders(token)});assert.equal(filtered.json.data.files.length,1);
+});
+
+test('native post names use site dates and asset folders follow draft publication', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);const token=await login(fixture.handler);
+  fixture.hexo.config.post_asset_folder=true;fixture.hexo.config.timezone='Asia/Shanghai';fixture.hexo.config.new_post_name=':year/:month-:i_month/:day-:i_day-:title.md';
+  const created=await request(fixture.handler,'POST','/posts',{headers:authHeaders(token),body:JSON.stringify({title:'Native',date:'2026-01-01T18:00:00Z'})});assert.equal(created.statusCode,200);
+  const post=created.json.data;assert.equal(post.relative,'2026/01-1/02-2-native.md');
+  const assetDir=path.join(fixture.draftsDir,'2026/01-1/02-2-native');assert.equal(fs.existsSync(assetDir),true);fs.writeFileSync(path.join(assetDir,'picture.png'),'picture');
+  const listed=await request(fixture.handler,'GET','/posts/'+post._id+'/assets',{headers:authHeaders(token)});assert.equal(listed.json.data.items[0].tag,'{% asset_img "picture.png" %}');
+  const published=await request(fixture.handler,'PUT','/posts/'+post._id+'/publish',{headers:authHeaders(token),body:JSON.stringify({published:true,revision:post.revision})});assert.equal(published.statusCode,200);
+  assert.equal(fs.existsSync(assetDir),false);assert.equal(fs.existsSync(path.join(fixture.postsDir,'2026/01-1/02-2-native/picture.png')),true);
+});
+
+test('recovery center restores old essay backups with optimistic revision checks', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);const token=await login(fixture.handler);
+  const dir=path.join(fixture.baseDir,'.hexo-admin','backups','essays');fs.writeFileSync(path.join(dir,'essays-legacy.yml'),'- content: Original\n  date: 2026-01-01\n');
+  fs.writeFileSync(path.join(fixture.sourceDir,'_data','essays.yml'),'- content: New\n  date: 2026-01-01\n');
+  const listing=await request(fixture.handler,'GET','/recovery',{headers:authHeaders(token)});assert.equal(listing.statusCode,200);assert.ok(listing.json.data.totalBytes>0);
+  const item=listing.json.data.items.find(item=>item.group==='essays');assert.ok(item);
+  const preview=await request(fixture.handler,'GET','/recovery/'+item.id,{headers:authHeaders(token)});assert.match(preview.json.data.content,/Original/);assert.match(preview.json.data.current,/New/);
+  const restored=await request(fixture.handler,'POST','/recovery/'+item.id+'/restore',{headers:authHeaders(token),body:JSON.stringify({revision:preview.json.data.currentRevision})});assert.equal(restored.statusCode,200);
+  assert.match(fs.readFileSync(path.join(fixture.sourceDir,'_data','essays.yml'),'utf8'),/Original/);
+});
+
+
+test('post asset renaming rewrites only relative references and rolls back a failed refresh', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);fixture.hexo.config.post_asset_folder=true;const token=await login(fixture.handler);
+  const send=async(method,url,body,revision)=>request(fixture.handler,method,url,{headers:authHeaders(token,revision?{'if-match':revision}:{}),body:body===undefined?undefined:JSON.stringify(body)});
+  const post=(await send('POST','/posts',{title:'Assets',content:'{% asset_img "old.png" %}\n![local](old.png)\n![remote](https://other.test/old.png)\nPlain old.png'})).json.data;
+  const directory=path.join(fixture.draftsDir,'assets');fs.writeFileSync(path.join(directory,'old.png'),'asset bytes');
+  const endpoint='/posts/'+post._id+'/assets/old.png';
+  const plan=(await send('POST',endpoint+'/rename-preview',{name:'new.png'})).json.data;assert.equal(plan.count,2);assert.match(plan.after,/https:\/\/other.test\/old.png/);assert.match(plan.after,/Plain old.png/);
+  const originalProcess=fixture.hexo.source.process;fixture.hexo.source.process=async()=>{throw new Error('refresh unavailable');};
+  const failed=await send('PUT',endpoint+'/rename',{name:'new.png',revision:plan.revision});assert.equal(failed.statusCode,500);
+  assert.equal(fs.existsSync(path.join(directory,'old.png')),true);assert.equal(fs.existsSync(path.join(directory,'new.png')),false);assert.match(fs.readFileSync(path.join(fixture.draftsDir,'assets.md'),'utf8'),/asset_img "old.png"/);
+  fixture.hexo.source.process=originalProcess;
+  const done=await send('PUT',endpoint+'/rename',{name:'new.png',revision:plan.revision});assert.equal(done.statusCode,200);
+  const changedEndpoint='/posts/'+post._id+'/assets/new.png';const deletion=(await send('GET',changedEndpoint+'/delete-preview')).json.data;
+  const removed=await send('DELETE',changedEndpoint,undefined,deletion.revision);assert.equal(removed.statusCode,200);assert.equal(fs.existsSync(path.join(directory,'new.png')),false);
+  const restore=await send('POST','/trash/'+removed.json.data.id+'/restore');assert.equal(restore.statusCode,200);assert.equal(fs.existsSync(path.join(directory,'new.png')),true);
+});
+
+test('publishing prevents panel writes while building and stops when external edits change the pinned content', async t => {
+  let entered,release;
+  const enteredBuild=new Promise(resolve=>{entered=resolve;});const hold=new Promise(resolve=>{release=resolve;});
+  const fixture=createFixture({hexoCall:async({name})=>{if(name==='generate'){entered();await hold;}}});t.after(fixture.cleanup);fixture.hexo.config.url='https://example.test/';const token=await login(fixture.handler);
+  const headers=authHeaders(token);
+  const check=await request(fixture.handler,'GET','/checks',{headers});
+  const started=await request(fixture.handler,'POST','/publishing/run',{headers,body:JSON.stringify({revision:check.json.data.revision})});
+  await enteredBuild;
+  const edit=await request(fixture.handler,'POST','/pages',{headers,body:JSON.stringify({title:'During build',path:'during/index.md'})});assert.equal(edit.statusCode,409);assert.equal(edit.json.code,'RELEASE_IN_PROGRESS');
+  fs.appendFileSync(fixture.configPath,'# External edit\n');release();
+  const job=await waitForCommandJob(fixture.handler,token,started.json.data.job.id);assert.equal(job.status,'failed');assert.equal(job.errorCode,'RELEASE_REVISION_CONFLICT');assert.ok(!fixture.calls.includes('deploy'));
+  const after=await request(fixture.handler,'POST','/pages',{headers,body:JSON.stringify({title:'After build',path:'after/index.md'})});assert.equal(after.statusCode,200);
+});
+
+
+test('real Hexo renders native assets and verifies a release, and rejects an absent deployer', {timeout:30000}, async t => {
+  const Hexo=require('hexo');const {marked}=require('marked');
+  const baseDir=fs.mkdtempSync(path.join(os.tmpdir(),'hexo-admin-native-'));
+  fs.writeFileSync(path.join(baseDir,'_config.yml'),'url: https://example.test/blog/\nroot: /blog/\ntimezone: Asia/Shanghai\ntheme: ""\npost_asset_folder: true\nnew_post_name: :year/:month/:day/:title.md\npermalink: :year/:month/:day/:title/\ndeploy:\n  type: fixture\n');
+  fs.writeFileSync(path.join(baseDir,'package.json'),JSON.stringify({name:'hexo-admin-native-test',version:'1.0.0',hexo:{version:require('hexo/package.json').version}}));
+  const hexo=new Hexo(baseDir,{silent:true});
+  t.after(async()=>{await hexo.exit();fs.rmSync(baseDir,{recursive:true,force:true});});
+  await hexo.init();
+  hexo.extend.renderer.register('md','html',data=>marked.parse(data.text),true);
+  hexo.extend.generator.register('post',locals=>locals.posts.toArray().map(post=>({path:post.path,data:'<!doctype html><html><body>'+post.content+'</body></html>'})));
+  let deployments=0;
+  hexo.extend.deployer.register('fixture',async()=>{deployments++;});
+  const fetched=[];
+  const handler=createApiHandler(hexo,{username:'admin',password:'secret',jwt_secret:'test-secret',token_expiry:'2h'},{fetch:async url=>{
+    fetched.push(url.pathname);assert.ok(url.pathname.startsWith('/blog/'));
+    return new Response(fs.readFileSync(path.join(hexo.public_dir,decodeURIComponent(url.pathname.slice(6)))));
+  }});
+  const token=await login(handler);const headers=authHeaders(token);
+  const created=await request(handler,'POST','/posts',{headers,body:JSON.stringify({title:'Native',date:'2026-01-01T18:00:00Z',published:true,content:'{% asset_img picture.png "Native image" %}'})});
+  assert.equal(created.statusCode,200,created.text);assert.ok(created.json.data._id,created.text);
+  assert.equal(created.json.data.relative,'2026/01/02/native.md');
+  const assetDir=path.join(hexo.source_dir,'_posts/2026/01/02/native');
+  fs.writeFileSync(path.join(assetDir,'picture.png'),await sharp({create:{width:1,height:1,channels:4,background:'#ff0000'}}).png().toBuffer());
+  await hexo.source.process();
+  const checks=await request(handler,'GET','/checks',{headers});assert.equal(checks.json.data.errors,0,checks.text);
+  const publish=async()=>{
+    const started=await request(handler,'POST','/publishing/run',{headers,body:JSON.stringify({revision:checks.json.data.revision})});assert.equal(started.statusCode,202,started.text);
+    for(let attempt=0;attempt<300;attempt++){
+      const response=await request(handler,'GET','/commands/jobs/'+started.json.data.job.id,{headers});const job=response.json.data;
+      if(['completed','failed','cancelled'].includes(job.status))return job;
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    throw new Error('Native Hexo release timed out');
+  };
+  const job=await publish();assert.equal(job.status,'completed',JSON.stringify(job));assert.equal(job.result.verified,true);assert.equal(deployments,1);
+  assert.equal(job.result.outputs.length,1);assert.ok(fetched.includes('/blog/2026/01/02/native/index.html'));
+  const html=fs.readFileSync(path.join(hexo.public_dir,'2026/01/02/native/index.html'),'utf8');assert.match(html,/src="\/blog\/2026\/01\/02\/native\/picture.png"/);
+  assert.ok(fs.existsSync(path.join(hexo.public_dir,'2026/01/02/native/picture.png')));
+  hexo.config.deploy={type:'missing-plugin'};
+  const failed=await publish();assert.equal(failed.status,'failed');assert.equal(failed.errorCode,'RELEASE_DEPLOYER_INVALID');assert.equal(failed.result.steps.at(-1).name,'部署');assert.equal(deployments,1);
+});
+
+
+test('essay batches atomically add and edit legacy entries, preserve metadata and make one backup', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);fixture.hexo.config.timezone='Asia/Shanghai';
+  const file=path.join(fixture.sourceDir,'_data','essays.yml');
+  const original='- content: First\n  date: 2026-01-01 12:00:37\n  author: Original\n  images: [one.png]\n- content: Keep\n  date: 2026-01-02 12:00:00\n';fs.writeFileSync(file,original);
+  const headers=authHeaders(await login(fixture.handler));
+  const before=(await request(fixture.handler,'GET','/essays',{headers})).json.data;
+  const first=before.items.find(item=>item.content==='First'),keep=before.items.find(item=>item.content==='Keep');
+  const send=body=>request(fixture.handler,'POST','/essays/batch',{headers,body:JSON.stringify(body)});
+  const entries=[{id:first.id,content:'Updated',date:first.date},{createId:'c'.repeat(32),content:'New A',date:'2026-01-03 08:30:00'},{content:'New B',date:'2026-01-04 09:00:00'}];
+  const saved=await send({revision:before.revision,entries});assert.equal(saved.statusCode,200,saved.text);assert.equal(saved.json.data.created,2);assert.equal(saved.json.data.updated,1);assert.equal(saved.json.data.items.length,4);
+  assert.equal(saved.json.data.changed[0].id,first.id);assert.equal(saved.json.data.changed[1].id,'c'.repeat(32));assert.ok(saved.json.data.items.some(item=>item.id===keep.id));
+  const data=yaml.load(fs.readFileSync(file,'utf8'));assert.equal(data[0].author,'Original');assert.deepEqual(data[0].images,['one.png']);assert.equal(data[0].date,'2026-01-01 12:00:37');assert.equal(data[1].content,'Keep');
+  const backups=fs.readdirSync(path.join(fixture.baseDir,'.hexo-admin/backups/essays'));assert.equal(backups.length,1);assert.equal(fs.readFileSync(path.join(fixture.baseDir,'.hexo-admin/backups/essays',backups[0]),'utf8'),original);
+  const bytes=fs.readFileSync(file,'utf8');assert.equal((await send({revision:before.revision,entries})).statusCode,409);assert.equal(fs.readFileSync(file,'utf8'),bytes);
+  const repeated=await send({revision:saved.json.data.revision,entries:[entries[1]]});assert.equal(repeated.statusCode,409);assert.equal(fs.readFileSync(file,'utf8'),bytes);
+});
+
+test('essay batch validation rejects every invalid batch without writing or backing up partial changes', async t => {
+  const fixture=createFixture();t.after(fixture.cleanup);fixture.hexo.config.timezone='America/New_York';
+  const file=path.join(fixture.sourceDir,'_data/essays.yml');const original='- content: Original\n  date: 2026-01-01 12:00:00\n';fs.writeFileSync(file,original);
+  const headers=authHeaders(await login(fixture.handler));const before=(await request(fixture.handler,'GET','/essays',{headers})).json.data;
+  const good={content:'Valid',date:'2026-01-01 12:00:00'};
+  for(const entries of [[],Array.from({length:101},()=>good),[good,{...good,content:'   '}],[good,{...good,date:'2026-02-31 12:00:00'}],[good,{...good,date:'2026-03-08 02:30:00'}],[{...good,id:before.items[0].id},{...good,id:before.items[0].id}],[good,{...good,id:'missing'}],[good,null],[good,{...good,createId:'bad'}]]){
+    const response=await request(fixture.handler,'POST','/essays/batch',{headers,body:JSON.stringify({revision:before.revision,entries})});assert.ok([400,404].includes(response.statusCode),response.text);assert.equal(fs.readFileSync(file,'utf8'),original);assert.equal(fs.readdirSync(path.join(fixture.baseDir,'.hexo-admin/backups/essays')).length,0);
+  }
+  const single=await request(fixture.handler,'POST','/essays',{headers,body:JSON.stringify({...good,date:'2026-04-31 12:00:00',revision:before.revision})});assert.equal(single.statusCode,400);
+});

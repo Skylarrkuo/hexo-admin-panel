@@ -31,6 +31,13 @@ copyright notices.
 - License: [MIT](https://github.com/nodeca/js-yaml/blob/master/LICENSE).
 - Source: [nodeca/js-yaml](https://github.com/nodeca/js-yaml).
 
+### yaml (`^2.9.0`)
+
+- Use: edit YAML documents while preserving comments and scalar formatting.
+- Copyright: Eemeli Aro <eemeli@gmail.com>.
+- License: [ISC](https://github.com/eemeli/yaml/blob/main/LICENSE).
+- Source: [eemeli/yaml](https://github.com/eemeli/yaml).
+
 ### sharp (`^0.34.4`)
 
 - Use: read image metadata and optimize images.

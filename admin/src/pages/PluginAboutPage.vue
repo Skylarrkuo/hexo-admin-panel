@@ -86,13 +86,14 @@ const fallbackAttributions=[
   {name:'Hexo',version:'>=4.0.0',scope:'peer',purposeZh:'站点生成器与插件宿主',purposeEn:'Site generator and plugin host',copyright:'Copyright (c) 2012-present Tommy Chen',license:'MIT',licenseUrl:'https://github.com/hexojs/hexo/blob/master/LICENSE',url:'https://github.com/hexojs/hexo'},
   {name:'hexo-front-matter',version:'^4.2.1',scope:'runtime',purposeZh:'解析与序列化 Markdown Front Matter',purposeEn:'Parse and serialize Markdown Front Matter',copyright:'Package author: Tommy Chen; contributors retain copyright in their contributions',license:'MIT',licenseUrl:'https://github.com/hexojs/hexo-front-matter/blob/master/package.json',url:'https://github.com/hexojs/hexo-front-matter'},
   {name:'js-yaml',version:'^4.3.1',scope:'runtime',purposeZh:'解析与序列化 YAML',purposeEn:'Parse and serialize YAML',copyright:'Copyright (C) 2011-2015 Vitaly Puzrin',license:'MIT',licenseUrl:'https://github.com/nodeca/js-yaml/blob/master/LICENSE',url:'https://github.com/nodeca/js-yaml'},
+  {name:'yaml',version:'^2.9.0',scope:'runtime',purposeZh:'保留注释的 YAML 文档编辑',purposeEn:'Edit YAML documents while preserving comments',copyright:'Copyright Eemeli Aro <eemeli@gmail.com>',license:'ISC',licenseUrl:'https://github.com/eemeli/yaml/blob/main/LICENSE',url:'https://github.com/eemeli/yaml'},
   {name:'sharp',version:'^0.34.4',scope:'runtime',purposeZh:'读取图片元数据并执行图片压缩',purposeEn:'Read image metadata and optimize images',copyright:'Copyright 2013 Lovell Fuller and others',license:'Apache-2.0',licenseUrl:'https://github.com/lovell/sharp/blob/main/LICENSE',url:'https://github.com/lovell/sharp'},
   {name:'Vue',version:'3.5.41',scope:'bundled',purposeZh:'管理后台界面运行时',purposeEn:'Admin interface runtime',copyright:'Copyright (c) 2018-present, Yuxi (Evan) You',license:'MIT',licenseUrl:'https://github.com/vuejs/core/blob/main/LICENSE',url:'https://github.com/vuejs/core'},
   {name:'marked',version:'15.0.12',scope:'bundled',purposeZh:'将 Markdown 转换为 HTML',purposeEn:'Convert Markdown to HTML',copyright:'Copyright (c) 2018+ MarkedJS; 2011-2018 Christopher Jeffrey; Markdown © 2004 John Gruber',license:'MIT / BSD-3-Clause notice for Markdown',licenseUrl:'https://github.com/markedjs/marked/blob/master/LICENSE.md',url:'https://github.com/markedjs/marked'},
   {name:'DOMPurify',version:'3.4.14',scope:'bundled',purposeZh:'清理 Markdown 渲染产生的 HTML',purposeEn:'Sanitize HTML produced by Markdown rendering',copyright:'Copyright (c) Cure53 and other contributors',license:'Apache-2.0 OR MPL-2.0',licenseUrl:'https://github.com/cure53/DOMPurify/blob/main/LICENSE',url:'https://github.com/cure53/DOMPurify'}
 ];
 const info=ref({
-  version:'3.3.0',license:'MIT',copyright:'Copyright (c) 2026 Skylarr Kuo',
+  version:'3.5.0',license:'MIT',copyright:'Copyright (c) 2026 Skylarr Kuo',
   runtime:{node:'',hexo:'',theme:''},
   links:{
     repository:'https://github.com/Skylarrkuo/hexo-admin-panel',
@@ -111,7 +112,7 @@ const capabilities=computed(()=>[
   {title:tr('独立页面','Standalone pages'),description:tr('管理 source 下的页面、模板与主题菜单顺序。','Manage source pages, templates, and theme menu order.'),path:'source/**/index.md'},
   {title:tr('分类与标签','Taxonomies'),description:tr('搜索选择、使用统计、合并、重命名与安全删除。','Search, usage statistics, merge, rename, and safe deletion.'),path:'categories · tags'},
   {title:tr('媒体资源','Media library'),description:tr('递归浏览、路径级引用分析与保留原图的压缩。','Recursive browsing, path-level reference analysis, and backed-up optimization.'),path:'source/images/**'},
-  {title:tr('真实主题预览','Real theme previews'),description:tr('临时构建真实主题、插件和最终 permalink，并在同源 iframe 查看。','Temporarily build the real theme, plugins, and final permalink in a same-origin iframe.'),path:'hexo generate → preview'},
+  {title:tr('真实主题预览','Real theme previews'),description:tr('临时构建真实主题、插件和最终 permalink，并在隔离的 sandbox iframe 查看。','Temporarily build the real theme, plugins, and final permalink in an isolated sandbox iframe.'),path:'hexo generate → preview'},
   {title:tr('发布中心','Publishing center'),description:tr('定时日历、失败重试、任务进度、取消操作与部署日志。','Scheduling calendar, retries, progress, cancellation, and deployment logs.'),path:'schedule · generate · deploy'}
 ]);
 

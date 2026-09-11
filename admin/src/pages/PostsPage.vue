@@ -1,5 +1,6 @@
 <template>
   <section>
+    <p class="text-sm text-muted">{{tr('加入站点仅改变 Hexo 内容状态，线上发布请到发布中心完成构建、部署与验证。','Adding a post changes its Hexo source state. Use Publishing to build, deploy, and verify it online.')}}</p>
     <div class="section-heading"><div><h2>{{ tr('内容库','Post library') }}</h2><p>{{ tr('搜索、筛选并维护所有 Markdown 文章。','Search, filter, and maintain every Markdown post.') }}</p></div><span class="text-sm text-muted">{{ tr('{total} 篇文章','{total} posts',{total}) }}</span></div>
     <div class="toolbar">
       <div class="search-box"><input :value="search" :placeholder="tr('搜索文章...','Search posts...')" @input="$emit('update:search',$event.target.value);$emit('search')"></div>
@@ -25,7 +26,7 @@
             <button class="btn btn-sm" :class="post.published?'btn-warning':'btn-success'" @click="$emit('publish',post)">{{ post.published?tr('取消发布','Unpublish'):tr('发布','Publish') }}</button>
             <button v-if="!post.published&&!post.scheduledAt" class="btn btn-outline btn-sm" @click="openSchedule(post)">{{ tr('定时','Schedule') }}</button><button v-if="post.scheduleId" class="btn btn-outline btn-sm" @click="$emit('cancel-schedule',post)">{{ tr('取消定时','Cancel schedule') }}</button>
             <button class="btn btn-danger btn-sm" @click="$emit('remove',post)">{{ tr('删除','Delete') }}</button>
-          </div><div v-if="schedulePostId===post._id" class="schedule-editor"><input v-model="scheduleValue" type="datetime-local"><button class="btn btn-primary btn-sm" @click="submitSchedule(post)">{{ tr('确认','Confirm') }}</button><button class="btn btn-outline btn-sm" @click="schedulePostId=''">{{ tr('取消','Cancel') }}</button></div></td>
+          </div><div v-if="schedulePostId===post._id" class="schedule-editor"><label>{{siteZone}}<input v-model="scheduleValue" type="datetime-local"></label><button class="btn btn-primary btn-sm" @click="submitSchedule(post)">{{ tr('确认','Confirm') }}</button><button class="btn btn-outline btn-sm" @click="schedulePostId=''">{{ tr('取消','Cancel') }}</button></div></td>
         </tr></tbody>
       </table></div>
       <div v-if="totalPages>1" class="pagination">
@@ -38,21 +39,24 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import {siteInput,siteInputToIso} from '../utils/site-time';
+import {api} from '../api/client';
 import { useI18n } from '../i18n';
 const {tr}=useI18n();
 const props=defineProps({ posts:Array, loading:Boolean, search:String, status:String, page:Number, total:Number, totalPages:Number, pageRange:Array });
-const emit = defineEmits(['update:search','update:status','update:page','search','reload','create','edit','publish','remove','bulk','schedule','cancel-schedule']);
-const selected=ref([]);const schedulePostId=ref('');const scheduleValue=ref('');
-const statuses=computed(()=>[{value:'all',label:tr('全部','All')},{value:'published',label:tr('已发布','Published')},{value:'draft',label:tr('全部草稿','All drafts')},{value:'in_progress',label:tr('未完成','In progress')},{value:'review',label:tr('待审核','In review')},{value:'scheduled',label:tr('计划中','Scheduled')}]);
+const emit = defineEmits(['update:search','update:status','update:page','search','reload','create','edit','publish','remove','bulk','schedule','cancel-schedule','notify']);
+const siteZone=ref('UTC');const selected=ref([]);const schedulePostId=ref('');const scheduleValue=ref('');
+const statuses=computed(()=>[{value:'all',label:tr('全部','All')},{value:'published',label:tr('已加入站点','In site source')},{value:'draft',label:tr('全部草稿','All drafts')},{value:'in_progress',label:tr('未完成','In progress')},{value:'review',label:tr('待审核','In review')},{value:'scheduled',label:tr('计划中','Scheduled')}]);
 const selectedPosts=computed(()=>props.posts.filter(post=>selected.value.includes(post._id)));const allSelected=computed(()=>props.posts.length>0&&props.posts.every(post=>selected.value.includes(post._id)));
 function toggle(id,checked){selected.value=checked?[...new Set([...selected.value,id])]:selected.value.filter(value=>value!==id);}function togglePage(checked){selected.value=checked?props.posts.map(post=>post._id):[];}
-function localDate(value){const pad=number=>String(number).padStart(2,'0');return value.getFullYear()+'-'+pad(value.getMonth()+1)+'-'+pad(value.getDate())+'T'+pad(value.getHours())+':'+pad(value.getMinutes());}
+function localDate(value){return siteInput(value,siteZone.value);}
 function openSchedule(post){schedulePostId.value=post._id;scheduleValue.value=localDate(new Date(Date.now()+3600000));}
-function submitSchedule(post){if(!scheduleValue.value)return;const date=new Date(scheduleValue.value);if(Number.isNaN(date.getTime()))return;emit('schedule',post,date.toISOString());schedulePostId.value='';}
+function submitSchedule(post){if(!scheduleValue.value)return;try{emit('schedule',post,siteInputToIso(scheduleValue.value,siteZone.value));schedulePostId.value='';}catch(error){emit('notify',error.message,'error');}}
 function changePage(page){emit('update:page',page);emit('reload');}
 function formatDate(value){if(!value)return'-';const date=new Date(value);return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');}
-function formatDateTime(value){return value?new Date(value).toLocaleString():'';}
-function workflowLabel(post){if(post.scheduleStatus==='failed')return tr('定时失败','Schedule failed');return({published:tr('已发布','Published'),scheduled:tr('计划中','Scheduled'),in_progress:tr('未完成','In progress'),review:tr('待审核','In review'),draft:tr('草稿','Draft')})[post.workflowStatus]||tr('草稿','Draft');}
+function formatDateTime(value){return value?new Date(value).toLocaleString(undefined,{timeZone:siteZone.value}):'';}
+function workflowLabel(post){if(post.scheduleStatus==='failed')return tr('定时失败','Schedule failed');return({published:tr('已加入站点','In site source'),scheduled:tr('计划中','Scheduled'),in_progress:tr('未完成','In progress'),review:tr('待审核','In review'),draft:tr('草稿','Draft')})[post.workflowStatus]||tr('草稿','Draft');}
 watch(()=>props.posts,()=>{selected.value=selected.value.filter(id=>props.posts.some(post=>post._id===id));});
+onMounted(async()=>{try{siteZone.value=(await api.get('/native')).timeZone||'UTC';}catch(_){}});
 </script>

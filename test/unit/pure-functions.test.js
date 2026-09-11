@@ -395,3 +395,35 @@ test('server middleware awaits asynchronous credential initialization before exp
   await assert.rejects(startup);
   assert.equal(mounted.length, 0);
 });
+
+
+test('history retention bounds versions, keeps binary preimages and rejects corrupted restore data', async t => {
+  const {createHistoryService}=require('../../lib/modules/history/service');
+  const {createFileRepository}=require('../../lib/repositories/file-repository');
+  const base=fs.mkdtempSync(path.join(os.tmpdir(),'hexo-history-'));t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const source=path.join(base,'source');fs.mkdirSync(source);const files=createFileRepository(base);
+  const context={hexo:{base_dir:base,source:{process:async()=>{}}},paths:{source},repositories:{files},operations:{run:fn=>fn()}};
+  const history=createHistoryService(context);files.observe(history);
+  const target=path.join(source,'post.md');
+  for(let index=0;index<55;index++)files.writeText(target,'Version '+index);
+  const items=history.list('source/post.md').items;assert.equal(items.length,50);assert.ok(items.every(item=>item.content===undefined));
+  const relocated=path.join(source,'renamed.md');files.move(target,relocated);assert.equal(history.list('source/renamed.md').items.length,50);assert.equal(history.list('source/post.md').items.length,0);assert.equal(history.preview(items[0].id).source,'source/renamed.md');
+  const binary=path.join(source,'image.png');files.writeBuffer(binary,Buffer.from([0,255,127]));files.writeBuffer(binary,Buffer.from([1,2,3]));
+  const image=history.list('source/image.png').items[0];const preview=history.preview(image.id);assert.deepEqual(Buffer.from(preview.content,'base64'),Buffer.from([0,255,127]));
+  fs.writeFileSync(path.join(base,'.hexo-admin','history',image.id+'.bin'),Buffer.from([99]));
+  await assert.rejects(()=>history.restore(image.id,preview.currentRevision),error=>error.code==='HISTORY_CORRUPTED');
+});
+
+
+test('native filename placeholders include hash and custom defaults with site-local dates', () => {
+  const {newPostName,siteTimestamp}=require('../../lib/shared/hexo-native');
+  const crypto=require('crypto');const date='2026-01-02 02:00:00';const timestamp=Date.parse('2026-01-01T18:00:00Z');
+  assert.equal(siteTimestamp(date,'Asia/Shanghai'),timestamp);
+  assert.equal(newPostName({new_post_name:'Folder/:title.md',filename_case:2},'native',date),'Folder/NATIVE.md');
+  assert.throws(()=>siteTimestamp('2026-02-31','Asia/Shanghai'),{code:'POST_DATE_INVALID'});
+  const hash=crypto.createHash('sha1').update('native'+Math.floor(timestamp/1000)).digest('hex').slice(0,12);
+  const config={timezone:'Asia/Shanghai',new_post_name:':category/:lang/:year/:i_month/:day/:hash-:title',permalink_defaults:{category:'notes',lang:'en'}};
+  assert.equal(newPostName(config,'native',date,{lang:'zh'}),'notes/zh/2026/1/02/'+hash+'-native.md');
+  assert.throws(()=>newPostName({...config,new_post_name:':unknown.md'},'native',date),{code:'POST_NAME_PATTERN_INVALID'});
+  assert.throws(()=>siteTimestamp('2026-03-08 02:30:00','America/New_York'),{code:'POST_DATE_INVALID'});
+});

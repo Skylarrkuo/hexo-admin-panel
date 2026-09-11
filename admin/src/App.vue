@@ -21,19 +21,20 @@
       <Transition name="page" mode="out-in">
       <div :key="route" class="page-view">
       <DashboardPage v-if="route==='/dashboard'" :stats="stats" :recent-posts="recentPosts" :command-loading="commandLoading" :command-job="commandJob" @command="runCommand" @edit="editPost" @create="go('/posts/new')" />
-      <PostsPage v-else-if="route==='/posts'" :posts="posts" :loading="postsLoading" :search="postSearch" :status="postStatus" :page="postPage" :total="postTotal" :total-pages="postTotalPages" :page-range="paginationRange" @update:search="postSearch=$event" @update:status="postStatus=$event" @update:page="postPage=$event" @search="debouncedPosts" @reload="loadPosts" @create="go('/posts/new')" @edit="editPost" @publish="togglePublish" @remove="deletePost" @bulk="bulkPosts" @schedule="schedulePost" @cancel-schedule="cancelSchedule" />
-      <NewPostPage v-else-if="route==='/posts/new'" @create="createPost" @cancel="go('/posts')" @notify="toast" />
-      <PostEditorPage v-else-if="route.startsWith('/posts/edit/')" :post-id="route.split('/')[3]" @cancel="go('/posts')" @saved="go('/posts')" @notify="toast" @dirty-change="editorDirty=$event" />
-      <EssaysPage v-else-if="route==='/essays'" @notify="toast" @request-confirm="confirmAction" />
-      <AboutPage v-else-if="route==='/about'" @notify="toast" />
-      <PagesPage v-else-if="route==='/pages'" @edit="editPage" @notify="toast" @request-confirm="confirmAction" />
-      <PageEditorPage v-else-if="route.startsWith('/pages/edit/')" :page-id="route.split('/')[3]" @cancel="go('/pages')" @notify="toast" />
+      <PostsPage @notify="toast" v-else-if="route==='/posts'" :posts="posts" :loading="postsLoading" :search="postSearch" :status="postStatus" :page="postPage" :total="postTotal" :total-pages="postTotalPages" :page-range="paginationRange" @update:search="postSearch=$event" @update:status="postStatus=$event" @update:page="postPage=$event" @search="debouncedPosts" @reload="loadPosts" @create="go('/posts/new')" @edit="editPost" @publish="togglePublish" @remove="deletePost" @bulk="bulkPosts" @schedule="schedulePost" @cancel-schedule="cancelSchedule" />
+      <NewPostPage ref="newPostEditor" @dirty-change="editorDirty=$event" v-else-if="route==='/posts/new'" @create="createPost" @cancel="go('/posts')" @notify="toast" />
+      <PostEditorPage @publish="go('/publishing')" v-else-if="route.startsWith('/posts/edit/')" :post-id="route.split('/')[3]" @cancel="go('/posts')" @saved="go('/posts')" @notify="toast" @dirty-change="editorDirty=$event" />
+      <EssaysPage @dirty-change="editorDirty=$event" v-else-if="route==='/essays'" @notify="toast" @request-confirm="confirmAction" />
+      <AboutPage @dirty-change="editorDirty=$event" v-else-if="route==='/about'" @notify="toast" />
+      <PagesPage @dirty-change="editorDirty=$event" v-else-if="route==='/pages'" @edit="editPage" @notify="toast" @request-confirm="confirmAction" />
+      <PageEditorPage @publish="go('/publishing')" @dirty-change="editorDirty=$event" v-else-if="route.startsWith('/pages/edit/')" :page-id="route.split('/')[3]" @cancel="go('/pages')" @notify="toast" />
       <PublishingPage v-else-if="route==='/publishing'" @notify="toast" />
       <TaxonomiesPage v-else-if="route==='/taxonomies'" @notify="toast" @request-confirm="confirmAction" />
       <PluginAboutPage v-else-if="route==='/plugin'" />
       <MediaPage v-else-if="route==='/media'" :files="mediaFiles" :loading="mediaLoading" :search="mediaSearch" :usage="mediaUsage" :compressing="mediaCompressing" :page="mediaPage" :total-pages="mediaTotalPages" @update:search="mediaSearch=$event" @update:usage="mediaUsage=$event" @update:page="mediaPage=$event" @search="debouncedMedia" @reload="loadMedia" @upload="uploadMedia" @copy="copyUrl" @rename="renameMedia" @compress="compressMedia" @remove="deleteMedia" />
+      <RecoveryPage v-else-if="route==='/recovery'" @notify="toast"/>
       <TrashPage v-else-if="route==='/trash'" :items="trashItems" :loading="trashLoading" @reload="loadTrash" @restore="restoreTrash" @remove="removeTrash" />
-      <ConfigPage v-else-if="route==='/config'" @notify="toast" @request-confirm="confirmAction" @saved-restart="restartAfterConfig" />
+      <ConfigPage @dirty-change="editorDirty=$event" v-else-if="route==='/config'" @notify="toast" @request-confirm="confirmAction" @saved-restart="restartAfterConfig" />
       <ThemesPage v-else-if="route==='/themes'" :themes="themes" :loading="themesLoading" />
       </div>
       </Transition>
@@ -64,6 +65,7 @@ import PasswordChangePage from './pages/PasswordChangePage.vue';
 import PostEditorPage from './pages/PostEditorPage.vue';
 import PostsPage from './pages/PostsPage.vue';
 import ThemesPage from './pages/ThemesPage.vue';
+import RecoveryPage from './pages/RecoveryPage.vue';
 import TrashPage from './pages/TrashPage.vue';
 import { useToast } from './composables/useToast';
 import { useI18n } from './i18n';
@@ -83,7 +85,7 @@ const posts=ref([]);const postSearch=ref('');const postStatus=ref('all');const p
 const mediaFiles=ref([]);const mediaSearch=ref('');const mediaUsage=ref('all');const mediaPage=ref(1);const mediaTotalPages=ref(0);const mediaLoading=ref(false);const mediaCompressing=ref('');
 const trashItems=ref([]);const trashLoading=ref(false);
 const themes=ref([]);const themesLoading=ref(false);
-const editorDirty=ref(false);let postSearchTimer,mediaSearchTimer;
+const newPostEditor=ref(null);const editorDirty=ref(false);let postSearchTimer,mediaSearchTimer;
 
 const pageMeta=computed(()=>{
   if(route.value==='/dashboard')return{title:tr('工作概览','Dashboard'),kicker:'Overview',context:tr('今天也适合写点什么','A good day to write something')};
@@ -99,13 +101,14 @@ const pageMeta=computed(()=>{
     '/taxonomies':{title:tr('分类标签中心','Taxonomies'),kicker:'Structure',context:tr('维护内容分类体系','Maintain your content taxonomy')},
     '/plugin':{title:tr('关于插件','About this plugin'),kicker:'Open source',context:tr('了解设计、许可与项目出处','Design, license, and project provenance')},
     '/media':{title:tr('媒体资源','Media'),kicker:'Library',context:tr('管理站点图片与附件','Manage site images and attachments')},
+    '/recovery':{title:tr('恢复中心','Recovery center'),kicker:'Recovery',context:tr('历史、差异与恢复','History, diff, and restore')},
     '/trash':{title:tr('回收站','Trash'),kicker:'Recovery',context:tr('可恢复最近删除的内容','Recover recently deleted content')},
     '/config':{title:tr('站点配置','Settings'),kicker:'Settings',context:tr('谨慎修改并保留备份','Edit carefully and keep backups')},
     '/themes':{title:tr('主题外观','Themes'),kicker:'Appearance',context:tr('查看当前主题状态','Review installed and active themes')}
   };return pages[route.value]||pages['/posts'];
 });
 
-function confirmEditorLeave(){return !editorDirty.value||!route.value.startsWith('/posts/edit/')||window.confirm(tr('文章有尚未保存的修改，确定离开吗？本地自动保存仍会保留。','This post has unsaved changes. Leave anyway? The local autosave will be kept.'));}
+function confirmEditorLeave(){return !editorDirty.value||window.confirm(tr('编辑器有尚未保存的修改，确定离开吗？本地自动保存仍会保留。','This editor has unsaved changes. Leave anyway? The local autosave will be kept.'));}
 function go(path){if(path===route.value)return;if(!confirmEditorLeave())return;editorDirty.value=false;location.hash='#'+path;}
 function confirmAction(title,message,onOk,details=[]){Object.assign(confirmDialog,{show:true,title,message,onOk,details});}
 function runConfirmation(){const action=confirmDialog.onOk;confirmDialog.show=false;confirmDialog.onOk=null;if(action)action();}
@@ -130,10 +133,10 @@ function restartAfterConfig(){toast(tr('配置已保存，正在重新构建并�
 async function waitForRestart(previousInstanceId){await new Promise(resolve=>setTimeout(resolve,800));for(let attempt=0;attempt<120;attempt+=1){try{const status=await api.get('/auth/verify');if(status.instanceId&&status.instanceId!==previousInstanceId){location.reload();return;}}catch(_){}await new Promise(resolve=>setTimeout(resolve,500));}toast(tr('未检测到新的服务实例，请查看 .hexo-admin/restart.log','No new service instance was detected. Check .hexo-admin/restart.log'),'error');commandLoading.value=false;}
 async function loadPosts(){postsLoading.value=true;try{const query=new URLSearchParams({page:String(postPage.value),per_page:'15',status:postStatus.value});if(postSearch.value)query.set('search',postSearch.value);const data=await api.get('/posts?'+query);posts.value=data.posts||[];postTotal.value=data.total;postTotalPages.value=data.total_pages;}catch(error){toast(errorMessage(error),'error');}finally{postsLoading.value=false;}}
 function debouncedPosts(){clearTimeout(postSearchTimer);postSearchTimer=setTimeout(()=>{postPage.value=1;loadPosts();},300);}
-async function createPost(form){if(!form.title?.trim()){toast(tr('请输入文章标题','Enter a post title'),'error');return;}let data;try{data=await api.post('/posts',{title:form.title.trim(),scaffold:form.scaffold||undefined,workflowStatus:form.workflowStatus,published:form.workflowStatus==='published'});}catch(error){toast(errorMessage(error),'error');return;}if(form.workflowStatus==='scheduled'){try{await api.post('/posts/'+data._id+'/schedule',{publishAt:form.publishAt,revision:data.revision,maxAttempts:form.maxAttempts,retryDelayMinutes:form.retryDelayMinutes});}catch(error){toast(tr('文章已创建，但定时任务保存失败：{message}','The post was created, but its schedule could not be saved: {message}',{message:errorMessage(error)}),'error');go(data._id?'/posts/edit/'+data._id:'/posts');return;}}toast(data.refreshed===false?tr('内容已保存到文件，但 Hexo 刷新失败。请检查服务日志，修复后重建站点；无需重复提交内容。','Content was saved to disk, but Hexo refresh failed. Check the server logs and rebuild after fixing the error; the content does not need to be resubmitted.'):form.workflowStatus==='published'?tr('文章已发布','Post published'):form.workflowStatus==='scheduled'?tr('文章已加入发布计划','Post scheduled'):tr('内容已创建','Content created'),data.refreshed===false?'warning':'success');go(data._id?'/posts/edit/'+data._id:'/posts');}
+async function createPost(form){if(!form.title?.trim()){toast(tr('请输入文章标题','Enter a post title'),'error');return;}let data;try{data=await api.post('/posts',{title:form.title.trim(),scaffold:form.scaffold||undefined,workflowStatus:form.workflowStatus,published:form.workflowStatus==='published'});}catch(error){toast(errorMessage(error),'error');return;}newPostEditor.value?.saved();if(form.workflowStatus==='scheduled'){try{await api.post('/posts/'+data._id+'/schedule',{publishAt:form.publishAt,revision:data.revision,maxAttempts:form.maxAttempts,retryDelayMinutes:form.retryDelayMinutes});}catch(error){toast(tr('文章已创建，但定时任务保存失败：{message}','The post was created, but its schedule could not be saved: {message}',{message:errorMessage(error)}),'error');go(data._id?'/posts/edit/'+data._id:'/posts');return;}}toast(data.refreshed===false?tr('内容已保存到文件，但 Hexo 刷新失败。请检查服务日志，修复后重建站点；无需重复提交内容。','Content was saved to disk, but Hexo refresh failed. Check the server logs and rebuild after fixing the error; the content does not need to be resubmitted.'):form.workflowStatus==='published'?tr('文章已加入站点源码，部署与线上验证请使用发布中心','Post added to site source. Use Publishing to deploy and verify it online'):form.workflowStatus==='scheduled'?tr('文章已加入发布计划','Post scheduled'):tr('内容已创建','Content created'),data.refreshed===false?'warning':'success');go(data._id?'/posts/edit/'+data._id:'/posts');}
 function editPost(id){go('/posts/edit/'+id);}
 function editPage(id){go('/pages/edit/'+id);}
-async function togglePublish(post){try{const data=await api.put('/posts/'+post._id+'/publish',{published:!post.published,revision:post.revision});post.published=data.published;post.revision=data.revision;if(data._id)post._id=data._id;if(post.published){post.scheduledAt=null;post.scheduleId=null;}toast(post.published?tr('文章已发布','Post published'):tr('文章已转为草稿','Post moved to drafts'),'success');}catch(error){toast(errorMessage(error),'error');}}
+async function togglePublish(post){try{const data=await api.put('/posts/'+post._id+'/publish',{published:!post.published,revision:post.revision});post.published=data.published;post.revision=data.revision;if(data._id)post._id=data._id;if(post.published){post.scheduledAt=null;post.scheduleId=null;}toast(post.published?tr('文章已加入站点源码，部署与线上验证请使用发布中心','Post added to site source. Use Publishing to deploy and verify it online'):tr('文章已转为草稿','Post moved to drafts'),'success');}catch(error){toast(errorMessage(error),'error');}}
 async function bulkPosts(action,selected){const execute=async()=>{try{await api.post('/posts/bulk',{action,items:selected.map(post=>({id:post._id,revision:post.revision}))});toast(tr('已完成 {count} 篇文章的批量操作','Bulk operation completed for {count} posts',{count:selected.length}),'success');loadPosts();}catch(error){toast(errorMessage(error),'error');}};if(action==='delete'){confirmAction(tr('批量删除文章','Delete posts'),tr('确定删除选中的 {count} 篇文章吗？文件会移入回收站。','Delete the {count} selected posts? They will be moved to trash.',{count:selected.length}),execute);return;}await execute();}
 async function schedulePost(post,publishAt){try{await api.post('/posts/'+post._id+'/schedule',{publishAt,revision:post.revision});toast(tr('已设置定时发布','Scheduled publish saved'),'success');loadPosts();}catch(error){toast(errorMessage(error),'error');}}
 async function cancelSchedule(post){try{await api.del('/schedules/'+post.scheduleId);toast(tr('已取消定时发布','Scheduled publish cancelled'),'success');loadPosts();}catch(error){toast(errorMessage(error),'error');}}
@@ -156,13 +159,14 @@ async function renameMedia(file,name){
 }
 async function compressMedia(file){mediaCompressing.value=file.name;try{const data=await api.post('/media/'+encodeURIComponent(file.name)+'/compress',{quality:82});toast(data.optimized?tr('压缩完成，节省 {size}','Compressed; saved {size}',{size:formatBytes(data.saved)}):tr('当前文件已足够紧凑','The file is already optimized'),'success');loadMedia();}catch(error){toast(errorMessage(error),'error');}finally{mediaCompressing.value='';}}
 function formatBytes(bytes){if(bytes<1024)return bytes+' B';if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';return(bytes/1048576).toFixed(1)+' MB';}
-function deleteMedia(file){confirmAction(tr('删除文件','Delete file'),tr('确定要删除「{name}」吗？','Delete “{name}”?',{name:file.name}),async()=>{try{await api.del('/media/'+encodeURIComponent(file.name));toast(tr('文件已移入回收站','File moved to trash'),'success');loadMedia();}catch(error){toast(errorMessage(error),'error');}});}
+async function deleteMedia(file){try{const plan=await api.get('/media/'+encodeURIComponent(file.name)+'/delete-preview');confirmAction(tr('删除前检查影响','Review deletion impact'),tr('删除「{name}」后，以下已识别引用将失效。文件会移入回收站。','Deleting “{name}” will break the references below. The file will move to trash.',{name:file.name}),async()=>{try{await api.del('/media/'+encodeURIComponent(file.name),plan.revision);toast(tr('文件已移入回收站','File moved to trash'),'success');loadMedia();}catch(error){toast(errorMessage(error),'error');}},plan.references.map(item=>({label:item.source,value:item.count+' '+tr('处引用','references')})));}catch(error){toast(errorMessage(error),'error');}}
 
 async function loadTrash(){trashLoading.value=true;try{trashItems.value=(await api.get('/trash')).items||[];}catch(error){toast(errorMessage(error),'error');}finally{trashLoading.value=false;}}
 async function restoreTrash(item){try{await api.post('/trash/'+encodeURIComponent(item.id)+'/restore');toast(tr('已恢复 {name}','Restored {name}',{name:item.name}),'success');loadTrash();}catch(error){toast(errorMessage(error),'error');}}
 function removeTrash(item){confirmAction(tr('永久删除','Delete permanently'),tr('永久删除「{name}」后无法恢复。','“{name}” cannot be recovered after permanent deletion.',{name:item.name}),async()=>{try{await api.del('/trash/'+encodeURIComponent(item.id));toast(tr('已永久删除','Deleted permanently'),'success');loadTrash();}catch(error){toast(errorMessage(error),'error');}});}
 async function loadThemes(){themesLoading.value=true;try{themes.value=(await api.get('/themes')).themes||[];}catch(error){toast(errorMessage(error),'error');}finally{themesLoading.value=false;}}
 function handleRoute(){const next=location.hash.slice(1)||'/dashboard';if(next!==route.value&&!confirmEditorLeave()){location.hash='#'+route.value;return;}if(next!==route.value)editorDirty.value=false;route.value=next;if(!authenticated.value||mustChangePassword.value)return;if(route.value==='/dashboard')loadDashboard();else if(route.value==='/posts'){postPage.value=1;loadPosts();}else if(route.value==='/media'){mediaPage.value=1;loadMedia();}else if(route.value==='/trash')loadTrash();else if(route.value==='/themes')loadThemes();}
-onMounted(async()=>{await verify();window.addEventListener('hashchange',handleRoute);handleRoute();});
-onBeforeUnmount(()=>{window.removeEventListener('hashchange',handleRoute);clearTimeout(postSearchTimer);clearTimeout(mediaSearchTimer);});
+function sessionExpired(){authenticated.value=false;}
+onMounted(async()=>{window.addEventListener('hexo-auth-expired',sessionExpired);await verify();window.addEventListener('hashchange',handleRoute);handleRoute();});
+onBeforeUnmount(()=>{window.removeEventListener('hexo-auth-expired',sessionExpired);window.removeEventListener('hashchange',handleRoute);clearTimeout(postSearchTimer);clearTimeout(mediaSearchTimer);});
 </script>

@@ -32,7 +32,7 @@
         <tbody><tr v-for="post in recentPosts" :key="post._id">
           <td><a href="#/posts" @click="$emit('edit',post._id)">{{ post.title }}</a></td>
           <td>{{ formatDate(post.date) }}</td>
-          <td><span :class="post.published?'status-published':'status-draft'">{{ post.published?tr('已发布','Published'):tr('草稿','Draft') }}</span></td>
+          <td><span :class="post.published?'status-published':'status-draft'">{{ post.published?tr('已加入站点','In site source'):tr('草稿','Draft') }}</span></td>
         </tr></tbody>
       </table>
     </div>
@@ -46,7 +46,7 @@ const {locale,tr}=useI18n();
 const props = defineProps({ stats: { type: Object, required: true }, recentPosts: { type: Array, required: true }, commandLoading: [String, Boolean], commandJob: { type: Object, default: null } });
 defineEmits(['command', 'edit', 'create']);
 const statItems = computed(() => [
-  [tr('已发布','Published'), props.stats.posts || 0], [tr('草稿','Drafts'), props.stats.drafts || 0], [tr('分类','Categories'), props.stats.categories || 0],
+  [tr('已加入站点','In site source'), props.stats.posts || 0], [tr('草稿','Drafts'), props.stats.drafts || 0], [tr('分类','Categories'), props.stats.categories || 0],
   [tr('标签','Tags'), props.stats.tags || 0], [tr('总字数','Total words'), formatNumber(props.stats.totalWords || 0)]
 ].map(([label, value]) => ({ label, value })));
 function formatDate(value) { if (!value) return '-'; const date = new Date(value); return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'); }

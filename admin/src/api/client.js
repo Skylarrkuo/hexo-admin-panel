@@ -10,7 +10,7 @@ export const api = {
     if (body !== undefined) options.body = JSON.stringify(body);
     const response = await fetch(apiBase + path, options);
     const payload = await response.json();
-    if (response.status === 401) { this.logout(); const error = new Error('Session expired'); error.code = 'UNAUTHORIZED'; throw error; }
+    if (response.status === 401) { window.dispatchEvent(new Event('hexo-auth-expired'));this.logout(); const error = new Error('Session expired'); error.code = 'UNAUTHORIZED'; throw error; }
     if (!payload.success) {
       const error = new Error(payload.error || 'Request failed');
       error.code = payload.code || 'UNKNOWN_ERROR';
@@ -28,7 +28,7 @@ export const api = {
     if (this.token) options.headers.Authorization = 'Bearer ' + this.token;
     const response = await fetch(apiBase + path, options);
     const payload = await response.json();
-    if (response.status === 401) { this.logout(); const error = new Error('Session expired'); error.code = 'UNAUTHORIZED'; throw error; }
+    if (response.status === 401) { window.dispatchEvent(new Event('hexo-auth-expired'));this.logout(); const error = new Error('Session expired'); error.code = 'UNAUTHORIZED'; throw error; }
     if (!payload.success) {
       const error = new Error(payload.error || 'Upload failed');
       error.code = payload.code || 'UPLOAD_FAILED';
@@ -40,4 +40,4 @@ export const api = {
   logout() { this.token = null; localStorage.removeItem('hexo_admin_token'); }
 };
 
-export function assetUrl(value) { return normalizedRoot + String(value || '').replace(/^\//, ''); }
+export function assetUrl(value) { const path=String(value||'');return path.startsWith(normalizedRoot)?path:normalizedRoot+path.replace(/^\//,''); }
