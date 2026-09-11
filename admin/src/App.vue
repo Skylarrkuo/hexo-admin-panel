@@ -36,6 +36,7 @@
       <RecoveryPage v-else-if="route==='/recovery'" @notify="toast"/>
       <TrashPage v-else-if="route==='/trash'" :items="trashItems" :loading="trashLoading" @reload="loadTrash" @restore="restoreTrash" @remove="removeTrash" />
       <ConfigPage @dirty-change="editorDirty=$event" v-else-if="route==='/config'" @notify="toast" @request-confirm="confirmAction" @saved-restart="restartAfterConfig" />
+      <PasswordChangePage v-else-if="route==='/password'" :initialization="false" :form="passwordForm" :loading="passwordLoading" @submit="changePassword" @cancel="go('/dashboard')" />
       <ThemesPage v-else-if="route==='/themes'" :themes="themes" :loading="themesLoading" />
       </div>
       </Transition>
@@ -105,6 +106,7 @@ const pageMeta=computed(()=>{
     '/recovery':{title:tr('恢复中心','Recovery center'),kicker:'Recovery',context:tr('历史、差异与恢复','History, diff, and restore')},
     '/trash':{title:tr('回收站','Trash'),kicker:'Recovery',context:tr('可恢复最近删除的内容','Recover recently deleted content')},
     '/config':{title:tr('站点配置','Settings'),kicker:'Settings',context:tr('谨慎修改并保留备份','Edit carefully and keep backups')},
+    '/password':{title:tr('修改密码','Change password'),kicker:'Account',context:tr('管理后台登录密码','Manage your admin password')},
     '/themes':{title:tr('主题外观','Themes'),kicker:'Appearance',context:tr('查看当前主题状态','Review installed and active themes')}
   };return pages[route.value]||pages['/posts'];
 });
@@ -115,7 +117,23 @@ function confirmAction(title,message,onOk,details=[]){Object.assign(confirmDialo
 function runConfirmation(){const action=confirmDialog.onOk;confirmDialog.show=false;confirmDialog.onOk=null;if(action)action();}
 async function verify(){try{if(!api.token)return;const data=await api.get('/auth/verify');authenticated.value=true;mustChangePassword.value=data.mustChangePassword===true;}catch(_){authenticated.value=false;}finally{authChecking.value=false;}}
 async function login(){if(!loginForm.username||!loginForm.password){toast(tr('请输入用户名和密码','Enter your username and password'),'error');return;}loginLoading.value=true;try{const data=await api.post('/auth/login',{username:loginForm.username,password:loginForm.password});api.token=data.token;localStorage.setItem('hexo_admin_token',data.token);authenticated.value=true;mustChangePassword.value=data.mustChangePassword===true;if(mustChangePassword.value){passwordForm.currentPassword=loginForm.password;toast(tr('首次登录，请设置新密码','Set a new password for your first sign-in'),'info');}else{toast(tr('登录成功','Signed in'),'success');handleRoute();}}catch(error){toast(errorMessage(error),'error');}finally{loginLoading.value=false;}}
-async function changePassword(){if(passwordForm.newPassword!==passwordForm.confirmPassword){toast(tr('两次输入的新密码不一致','The new passwords do not match'),'error');return;}passwordLoading.value=true;try{const data=await api.post('/auth/change-password',{currentPassword:passwordForm.currentPassword,newPassword:passwordForm.newPassword});api.token=data.token;localStorage.setItem('hexo_admin_token',data.token);mustChangePassword.value=false;Object.assign(passwordForm,{currentPassword:'',newPassword:'',confirmPassword:''});toast(tr('密码已更新','Password updated'),'success');handleRoute();}catch(error){toast(errorMessage(error),'error');}finally{passwordLoading.value=false;}}
+function resetPasswordForm(){Object.assign(passwordForm,{currentPassword:'',newPassword:'',confirmPassword:''});}
+async function changePassword(){
+  if(passwordLoading.value)return;
+  if(!passwordForm.currentPassword){toast(tr('请输入当前密码','Enter your current password'),'error');return;}
+  if(passwordForm.newPassword.length<12||passwordForm.newPassword.length>256){toast(tr('新密码需要 12–256 个字符','Use 12–256 characters for the new password'),'error');return;}
+  if(passwordForm.newPassword!==passwordForm.confirmPassword){toast(tr('两次输入的新密码不一致','The new passwords do not match'),'error');return;}
+  if(passwordForm.newPassword===passwordForm.currentPassword){toast(tr('新密码不能与当前密码相同','The new password must differ from the current password'),'error');return;}
+  const sessionToken=api.token;
+  passwordLoading.value=true;
+  try{
+    const data=await api.post('/auth/change-password',{currentPassword:passwordForm.currentPassword,newPassword:passwordForm.newPassword});
+    if(!authenticated.value||api.token!==sessionToken)return;
+    api.token=data.token;localStorage.setItem('hexo_admin_token',data.token);mustChangePassword.value=false;
+    resetPasswordForm();loginForm.password='';
+    toast(tr('密码已更新，其他会话需重新登录','Password updated. Other sessions must sign in again'),'success');handleRoute();
+  }catch(error){toast(errorMessage(error),'error');}finally{passwordLoading.value=false;}
+}
 async function logout(all=false){
   if(!confirmEditorLeave())return;
   try{await api.post(all?'/auth/logout-all':'/auth/logout');}
@@ -166,8 +184,8 @@ async function loadTrash(){trashLoading.value=true;try{trashItems.value=(await a
 async function restoreTrash(item){try{await api.post('/trash/'+encodeURIComponent(item.id)+'/restore');toast(tr('已恢复 {name}','Restored {name}',{name:item.name}),'success');loadTrash();}catch(error){toast(errorMessage(error),'error');}}
 function removeTrash(item){confirmAction(tr('永久删除','Delete permanently'),tr('永久删除「{name}」后无法恢复。','“{name}” cannot be recovered after permanent deletion.',{name:item.name}),async()=>{try{await api.del('/trash/'+encodeURIComponent(item.id));toast(tr('已永久删除','Deleted permanently'),'success');loadTrash();}catch(error){toast(errorMessage(error),'error');}});}
 async function loadThemes(){themesLoading.value=true;try{themes.value=(await api.get('/themes')).themes||[];}catch(error){toast(errorMessage(error),'error');}finally{themesLoading.value=false;}}
-function handleRoute(){const next=location.hash.slice(1)||'/dashboard';if(next!==route.value&&!confirmEditorLeave()){location.hash='#'+route.value;return;}if(next!==route.value)editorDirty.value=false;route.value=next;if(!authenticated.value||mustChangePassword.value)return;if(route.value==='/dashboard')loadDashboard();else if(route.value==='/posts'){postPage.value=1;loadPosts();}else if(route.value==='/media'){mediaPage.value=1;loadMedia();}else if(route.value==='/trash')loadTrash();else if(route.value==='/themes')loadThemes();}
-function sessionExpired(){authenticated.value=false;}
+function handleRoute(){const next=location.hash.slice(1)||'/dashboard';if(next!==route.value&&!confirmEditorLeave()){location.hash='#'+route.value;return;}if(next!==route.value){editorDirty.value=false;if(route.value==='/password'&&!mustChangePassword.value)resetPasswordForm();}route.value=next;if(!authenticated.value||mustChangePassword.value)return;if(route.value==='/dashboard')loadDashboard();else if(route.value==='/posts'){postPage.value=1;loadPosts();}else if(route.value==='/media'){mediaPage.value=1;loadMedia();}else if(route.value==='/trash')loadTrash();else if(route.value==='/themes')loadThemes();}
+function sessionExpired(){authenticated.value=false;mustChangePassword.value=false;resetPasswordForm();loginForm.password='';}
 onMounted(async()=>{window.addEventListener('hexo-auth-expired',sessionExpired);await verify();window.addEventListener('hashchange',handleRoute);handleRoute();});
 onBeforeUnmount(()=>{window.removeEventListener('hexo-auth-expired',sessionExpired);window.removeEventListener('hashchange',handleRoute);clearTimeout(postSearchTimer);clearTimeout(mediaSearchTimer);});
 </script>

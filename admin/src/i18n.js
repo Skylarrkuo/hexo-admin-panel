@@ -32,6 +32,8 @@ const ERROR_MESSAGES = {
   INVALID_URL: ['URL 格式无效', 'Invalid URL'],
   UNAUTHORIZED: ['登录状态已失效，请重新登录', 'Your session has expired. Please sign in again'],
   PASSWORD_CHANGE_REQUIRED: ['请先设置新的管理员密码', 'Set a new administrator password first'],
+  CURRENT_PASSWORD_INVALID: ['当前密码不正确', 'The current password is incorrect'],
+  WEAK_PASSWORD: ['新密码需为 12–256 个字符，不能与当前密码相同，也不能包含“用户名123”', 'Use 12–256 characters, a different password, and avoid your username followed by 123'],
   POST_REVISION_CONFLICT: ['文章已在其他位置被修改，请刷新后重试', 'This post changed elsewhere. Refresh and try again'],
   CONFIG_REVISION_CONFLICT: ['配置已在其他位置被修改，请刷新后重试', 'The configuration changed elsewhere. Refresh and try again'],
   ABOUT_REVISION_CONFLICT: ['About 页面已在其他位置被修改，请刷新后重试', 'The About page changed elsewhere. Refresh and try again'],

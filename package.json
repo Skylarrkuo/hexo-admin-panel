@@ -1,6 +1,6 @@
 {
   "name": "hexo-admin-panel",
-  "version": "3.5.1",
+  "version": "3.5.2",
   "description": "A modular Vue-powered admin dashboard with direct Hexo API integration",
   "main": "index.js",
   "scripts": {

@@ -57,12 +57,12 @@ Vue admin interface in the browser
             └─ .hexo-admin/     Private state, backups, jobs, and logs
 ```
 
-## What’s new in 3.5.1
+## What’s new in 3.5.2
 
-- **Edit essays in place**: the editor opens inside the selected card with a live preview. Saving updates the list without sending you back to the top.
-- **More readable posts**: larger titles and buttons, grouped categories and tags, and clear “Edit” and “More” actions. Narrow screens use a card layout.
-- **Roomier media and recovery views**: see complete image previews, expand reference details, and review restore differences beneath the selected backup, with space for long paths and controls.
-- **Smoother session refresh**: existing sessions are checked before opening the current page, avoiding a flash of the login form. Selection controls, date inputs, and menu motion support light, dark, and narrow layouts.
+- **Clearer navigation**: Dashboard has its own entry; other destinations are grouped into Content, Publishing & maintenance, and Site settings, with consistent icons, spacing, and active states. Short screens scroll the navigation independently.
+- **Account controls in one place**: use “Account & security” at the bottom of the sidebar to change your password, sign out, or sign out of all sessions. Language, appearance, and View site share a compact toolbar.
+- **Change your password anytime**: enter your current password, a new password, and confirmation. Use 12–256 characters. Saving keeps this session signed in while other sessions must sign in again.
+- **Simpler mobile navigation**: Overview, Posts, Publishing, and All navigation stay in the bottom bar; the complete grouped navigation opens in a drawer. Chinese, English, light and dark themes, and keyboard controls are supported.
 
 See [Versions and releases](#versions-and-releases) for upgrade steps and [CHANGELOG.md](./CHANGELOG.md) for the full history.
 
@@ -105,11 +105,11 @@ See [Versions and releases](#versions-and-releases) for upgrade steps and [CHANG
 
 ### Reliability, security, and experience
 
-- Require a password change on first login; migrate existing plaintext credentials to a PBKDF2 hash and rotate the JWT secret.
+- Uninitialized accounts must set a permanent password after first sign-in; existing plaintext credentials migrate to a PBKDF2 hash. Use “Account & security → Change password” anytime to update your password and invalidate other sessions.
 - Apply CSP, clickjacking protection, MIME sniffing protection, Referrer Policy, and Permissions Policy to the admin interface and API.
 - Rate-limit login attempts by socket address with expiry cleanup and a 1024-entry cap. Active lockouts are never evicted to admit new sources.
 - Run PBKDF2 asynchronously with a process-wide limit of 2 active and 8 queued computations; excess requests receive `429 AUTH_BUSY`.
-- Revoke the current token on sign-out, or persistently rotate the signing key using “Sign out of all sessions” in the sidebar. Failed revocation leaves the UI signed in with a retry message.
+- Revoke the current token on sign-out, or persistently rotate the signing key using “Account & security → Sign out of all sessions” in the sidebar. Failed revocation leaves the UI signed in with a retry message.
 - Check both lexical and real filesystem paths, rejecting external symlinks and Windows junctions including missing destinations beneath them, while permitting links inside the site.
 - Refresh the Hexo source only once after an entire bulk publish, unpublish, or trash operation completes.
 - Provide Chinese and English interfaces, light and dark modes, and responsive desktop and mobile layouts.
@@ -165,6 +165,8 @@ admin:
 On first startup, the plugin converts the password to a PBKDF2 hash, generates a random JWT secret, and saves both in `.hexo-admin/state.yml`. It then removes `password`, `password_hash`, and `jwt_secret` from `_admin-config.yml` automatically.
 
 When no password is configured, the terminal running Hexo displays random one-time initialization credentials (default username `admin`, password generated from 24 random bytes). The temporary password is never written to configuration or state files and is regenerated on restart. Set a permanent password of at least 12 characters after login; doing so invalidates the bootstrap credentials and earlier tokens. Uninitialized legacy `admin/admin` configurations also use random credentials.
+
+After signing in, open **Account & security → Change password** at the bottom of the navigation and enter your current password, new password, and confirmation. Use 12–256 characters and a password different from the current one. Saving keeps this session signed in, invalidates other sessions, and persists the new password without restarting Hexo.
 
 ### 3. Start Hexo and sign in
 
@@ -425,15 +427,15 @@ For security issues involving credentials, path boundaries, arbitrary file write
 
 ## Versions and releases
 
-The current version is `3.5.1`. The project follows Semantic Versioning; see [CHANGELOG.md](./CHANGELOG.md) for details.
+The current version is `3.5.2`. The project follows Semantic Versioning; see [CHANGELOG.md](./CHANGELOG.md) for details.
 
 Upgrade from your Hexo site root:
 
 ```bash
-npm install hexo-admin-panel@3.5.1
+npm install hexo-admin-panel@3.5.2
 ```
 
-Restart Hexo after installation, then refresh `/admin`. Version 3.5.1 requires no configuration changes or migration of posts, essays, or media. Keep the existing `.hexo-admin/` directory to retain authentication state, history, and backups. Node.js 20 or newer is still required.
+Restart Hexo after installation, then refresh `/admin`. Version 3.5.2 requires no configuration changes or migration of posts, essays, or media. Keep the existing `.hexo-admin/` directory to retain authentication state, history, and backups. Node.js 20 or newer is still required.
 
 README: [简体中文](./README.md) · <strong>English</strong>
 

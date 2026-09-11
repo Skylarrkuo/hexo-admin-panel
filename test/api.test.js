@@ -246,6 +246,44 @@ test('one-time initialization account is restricted until the password is change
   assert.equal(allowed.statusCode, 200);
 });
 
+test('an initialized admin can change the password, revoke old sessions, and sign in after restart', async t => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const token = await login(fixture.handler);
+  const otherToken = await login(fixture.handler);
+  const newPassword = 'A-new-safe-passphrase-2026';
+  const change = (headers, currentPassword, next = newPassword) => request(fixture.handler, 'POST', '/auth/change-password', {
+    headers, body: JSON.stringify({ currentPassword, newPassword: next })
+  });
+  assert.equal((await change({}, 'secret')).statusCode, 401);
+  const incorrect = await change(authHeaders(token), 'incorrect');
+  assert.equal(incorrect.json.code, 'CURRENT_PASSWORD_INVALID');
+  assert.equal((await change(authHeaders(token), 'secret', 'short')).statusCode, 400);
+  assert.equal((await request(fixture.handler, 'GET', '/auth/verify', { headers: authHeaders(token) })).statusCode, 200);
+  assert.equal(fs.existsSync(path.join(fixture.baseDir, '.hexo-admin', 'state.yml')), false);
+
+  const changed = await change(authHeaders(token), 'secret');
+  assert.equal(changed.statusCode, 200);
+  const newToken = changed.json.data.token;
+  assert.equal((await change(authHeaders(newToken), newPassword, newPassword)).json.code, 'WEAK_PASSWORD');
+  for (const oldToken of [token, otherToken]) {
+    assert.equal((await request(fixture.handler, 'GET', '/auth/verify', { headers: authHeaders(oldToken) })).statusCode, 401);
+  }
+  assert.equal((await request(fixture.handler, 'GET', '/auth/verify', { headers: authHeaders(newToken) })).statusCode, 200);
+  const state = fs.readFileSync(path.join(fixture.baseDir, '.hexo-admin', 'state.yml'), 'utf8');
+  assert.match(state, /password_hash: pbkdf2/);
+  assert.equal(state.includes(newPassword), false);
+
+  const { loadAdminConfig } = require('../lib/plugin/load-config');
+  const restarted = createApiHandler(fixture.hexo, await loadAdminConfig(fixture.hexo));
+  for (const [password, expectedStatus] of [['secret', 401], [newPassword, 200]]) {
+    const result = await request(restarted, 'POST', '/auth/login', {
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'admin', password })
+    });
+    assert.equal(result.statusCode, expectedStatus);
+  }
+});
+
 test('login endpoint locks repeated failed attempts', async t => {
   const fixture = createFixture();
   t.after(fixture.cleanup);

@@ -216,7 +216,7 @@ describe('admin application', () => {
   it('explains the plugin and links its source, package, license, and attributions', async () => {
     const originalFetch=global.fetch;
     global.fetch=vi.fn(async()=>({status:200,json:async()=>({success:true,data:{
-      name:'hexo-admin-panel',version:'3.5.1',license:'MIT',copyright:'Copyright (c) 2026 Skylarr Kuo',
+      name:'hexo-admin-panel',version:'3.5.2',license:'MIT',copyright:'Copyright (c) 2026 Skylarr Kuo',
       runtime:{node:'v20.19.0',hexo:'8.1.2',theme:'redefine'},
       links:{repository:'https://github.com/Skylarrkuo/hexo-admin-panel',npm:'https://www.npmjs.com/package/hexo-admin-panel',issues:'https://github.com/Skylarrkuo/hexo-admin-panel/issues',license:'https://github.com/Skylarrkuo/hexo-admin-panel/blob/master/LICENSE',notices:'https://github.com/Skylarrkuo/hexo-admin-panel/blob/master/THIRD_PARTY_NOTICES.md'},
       attributions:[{name:'Vue',version:'3.5.41',scope:'bundled',purposeZh:'管理后台界面运行时',purposeEn:'Admin interface runtime',copyright:'Copyright (c) 2018-present, Yuxi (Evan) You',license:'MIT',licenseUrl:'https://github.com/vuejs/core/blob/main/LICENSE',url:'https://github.com/vuejs/core'}]

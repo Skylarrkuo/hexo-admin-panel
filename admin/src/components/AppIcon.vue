@@ -11,6 +11,10 @@
     <template v-else-if="name==='config'"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/></template>
     <template v-else-if="name==='themes'"><path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 0-3.6h-1a2 2 0 0 1 0-4H15a6 6 0 0 0 6-6C21 4.8 16.9 3 12 3Z"/><circle cx="7.5" cy="10" r=".7" fill="currentColor"/><circle cx="9" cy="6.5" r=".7" fill="currentColor"/><circle cx="14" cy="6.5" r=".7" fill="currentColor"/></template>
     <template v-else-if="name==='plugin'"><path d="m12 2.8 8 4.6v9.2l-8 4.6-8-4.6V7.4z"/><path d="M8.2 8v8M15.8 8v8M8.2 12h7.6"/></template>
+    <template v-else-if="name==='menu'"><path d="M4 6h16M4 12h16M4 18h16"/></template>
+    <template v-else-if="name==='close'"><path d="m6 6 12 12M6 18 18 6"/></template>
+    <template v-else-if="name==='history'"><path d="M3 11a9 9 0 1 1 2.7 7M3 5v6h6M12 7v5l3 2"/></template>
+    <template v-else-if="name==='lock'"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></template>
     <template v-else-if="name==='logout'"><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/></template>
     <template v-else-if="name==='external'"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6H5V6h6"/></template>
     <template v-else-if="name==='plus'"><path d="M12 5v14M5 12h14"/></template>
